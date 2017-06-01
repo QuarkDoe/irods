@@ -1,5 +1,6 @@
 from __future__ import print_function
 import getpass
+import inspect
 import os
 import psutil
 import re
@@ -15,12 +16,14 @@ else:
 
 from ..configuration import IrodsConfig
 from ..controller import IrodsController
+from ..core_file import temporary_core_file, CoreFile
 from .. import test
 from . import settings
 from .. import lib
 from .resource_suite import ResourceSuite, ResourceBase
 from .test_chunkydevtest import ChunkyDevTest
 from . import session
+from .rule_texts_for_tests import rule_texts
 
 def statvfs_path_or_parent(path):
     while not os.path.exists(path):
@@ -674,6 +677,8 @@ class Test_Resource_RoundRobinWithinReplication(ChunkyDevTest, ResourceSuite, un
 
 
 class Test_Resource_Unixfilesystem(ResourceSuite, ChunkyDevTest, unittest.TestCase):
+    plugin_name = IrodsConfig().default_rule_engine_plugin
+    class_name = 'Test_Resource_Unixfilesystem'
 
     def setUp(self):
         hostname = lib.get_hostname()
@@ -720,13 +725,9 @@ class Test_Resource_Unixfilesystem(ResourceSuite, ChunkyDevTest, unittest.TestCa
         # make sure the physical path exists
         lib.make_dir_p(self.admin.get_vault_path('demoResc'))
 
-        corefile = os.path.join(IrodsConfig().core_re_directory, 'core.re')
-        with lib.file_backed_up(corefile):
-            rules_to_prepend = '''
-acPostProcForParallelTransferReceived(*leaf_resource) {msi_update_unixfilesystem_resource_free_space(*leaf_resource);}
-            '''
+        with temporary_core_file() as core:
             time.sleep(1)  # remove once file hash fix is committed #2279
-            lib.prepend_string_to_file(rules_to_prepend, corefile)
+            core.add_rule(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name])
             time.sleep(1)  # remove once file hash fix is committed #2279
 
             self.user0.assert_icommand(['iput', filename])
@@ -907,7 +908,6 @@ class Test_Resource_WeightedPassthru(ResourceBase, unittest.TestCase):
         self.admin.assert_icommand("iadmin modresc w_pt context 'write=1.0;read=0.01'")
         self.admin.assert_icommand("iget " + filename + " - ", 'STDOUT_SINGLELINE', "TESTFILE")
         self.admin.assert_icommand("irm -f " + filename)
-
 
         ### write=0.9;read=0.0
         self.admin.assert_icommand("iadmin modresc w_pt context 'write=0.9;read=0.0'")
@@ -1663,6 +1663,8 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
 
 
 class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
+    plugin_name = IrodsConfig().default_rule_engine_plugin
+    class_name = 'Test_Resource_Compound'
 
     def setUp(self):
         with session.make_session_for_existing_admin() as admin_session:
@@ -1717,17 +1719,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         parameters['logical_path_rsync'] = logical_path_rsync
         parameters['dest_resc'] = 'null'
         rule_file_path = 'test_msiDataObjRsync__2976.r'
-        rule_str = '''
-test_msiDataObjRepl {{
-    *err = errormsg( msiDataObjRsync(*SourceFile,"IRODS_TO_IRODS",*Resource,*DestFile,*status), *msg );
-    if( 0 != *err ) {{
-        writeLine( "stdout", "*err - *msg" );
-    }}
-}}
-
-INPUT *SourceFile="{logical_path}", *Resource="{dest_resc}", *DestFile="{logical_path_rsync}"
-OUTPUT ruleExecOut
-'''.format(**parameters)
+        rule_str = rule_texts[self.plugin_name][self.class_name]['test_msiDataObjRsync__2976'].format(**parameters)
 
         with open(rule_file_path, 'w') as rule_file:
             rule_file.write(rule_str)
@@ -1765,17 +1757,7 @@ OUTPUT ruleExecOut
         parameters['logical_path_rsync'] = logical_path_rsync
         parameters['dest_resc'] = 'demoResc'
         rule_file_path = 'test_msiDataObjRsync__2976.r'
-        rule_str = '''
-test_msiCollRepl {{
-    *err = errormsg( msiCollRsync(*SourceColl,*DestColl,*Resource,"IRODS_TO_IRODS",*status), *msg );
-    if( 0 != *err ) {{
-        writeLine( "stdout", "*err - *msg" );
-    }}
-}}
-
-INPUT *SourceColl="{logical_path}", *Resource="{dest_resc}", *DestColl="{logical_path_rsync}"
-OUTPUT ruleExecOut
-'''.format(**parameters)
+        rule_str = rule_texts[self.plugin_name][self.class_name]['test_msiCollRsync__2976'].format(**parameters)
 
         with open(rule_file_path, 'w') as rule_file:
             rule_file.write(rule_str)
@@ -1817,17 +1799,7 @@ OUTPUT ruleExecOut
         parameters = {}
         parameters['logical_path'] = logical_path
         rule_file_path = 'test_msiDataObjUnlink__2983.r'
-        rule_str = '''
-test_msiDataObjUnlink {{
-    *err = errormsg( msiDataObjUnlink("objPath=*SourceFile++++unreg=",*Status), *msg );
-    if( 0 != *err ) {{
-        writeLine( "stdout", "*err - *msg" );
-    }}
-}}
-
-INPUT *SourceFile="{logical_path}"
-OUTPUT ruleExecOut
-'''.format(**parameters)
+        rule_str = rule_texts[self.plugin_name][self.class_name]['test_msiDataObjUnlink__2983'].format(**parameters)
 
         with open(rule_file_path, 'w') as rule_file:
             rule_file.write(rule_str)
@@ -1848,17 +1820,7 @@ OUTPUT ruleExecOut
         parameters['logical_path'] = logical_path
         parameters['dest_resc'] = 'demoResc'
         rule_file_path = 'test_msiDataObjRepl_as_admin__2988.r'
-        rule_str = '''
-test_msiDataObjRepl {{
-    *err = errormsg( msiDataObjRepl(*SourceFile,"destRescName=*Resource++++irodsAdmin=",*Status), *msg );
-    if( 0 != *err ) {{
-        writeLine( "stdout", "*err - *msg" );
-    }}
-}}
-
-INPUT *SourceFile="{logical_path}", *Resource="{dest_resc}"
-OUTPUT ruleExecOut
-'''.format(**parameters)
+        rule_str = rule_texts[self.plugin_name][self.class_name]['test_msiDataObjRepl_as_admin__2988'].format(**parameters)
 
         with open(rule_file_path, 'w') as rule_file:
             rule_file.write(rule_str)
@@ -1898,18 +1860,8 @@ OUTPUT ruleExecOut
         parameters['physical_path'] = physical_path
         parameters['resc_hier'] = 'demoResc;cacheResc'
 
-        rule_file_path = 'test_msiDataObjRepl_as_admin__2988.r'
-        rule_str = '''
-test_msiDataObjRepl {{
-    *err = errormsg( msisync_to_archive(*RescHier,*PhysicalPath,*LogicalPath), *msg );
-    if( 0 != *err ) {{
-        writeLine( "stdout", "*err - *msg" );
-    }}
-}}
-
-INPUT *LogicalPath="{logical_path}", *PhysicalPath="{physical_path}",*RescHier="{resc_hier}"
-OUTPUT ruleExecOut
-'''.format(**parameters)
+        rule_file_path = 'test_msisync_to_archive__2962.r'
+        rule_str = rule_texts[self.plugin_name][self.class_name]['test_msisync_to_archive__2962'].format(**parameters)
 
         with open(rule_file_path, 'w') as rule_file:
             rule_file.write(rule_str)
@@ -1983,10 +1935,9 @@ OUTPUT ruleExecOut
         os.remove(phypath)
 
         # manipulate the core.re to add the new policy
-        corefile = os.path.join(IrodsConfig().core_re_directory, 'core.re')
-        with lib.file_backed_up(corefile):
+        with temporary_core_file() as core:
             time.sleep(2)  # remove once file hash fix is commited #2279
-            lib.prepend_string_to_file('pep_resource_resolve_hierarchy_pre(*INSTANCE, *CONTEXT, *OUT, *OPERATION, *HOST, *PARSER, *VOTE){*OUT="compound_resource_cache_refresh_policy=always";}\n', corefile)
+            core.add_rule(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name])
             time.sleep(2)  # remove once file hash fix is commited #2279
 
             self.admin.assert_icommand("irm -f " + filename)
@@ -2021,11 +1972,10 @@ OUTPUT ruleExecOut
 
         # manipulate the core.re to add the new policy
 
-        corefile = os.path.join(IrodsConfig().core_re_directory, 'core.re')
-        with lib.file_backed_up(corefile):
-            time.sleep(2)  # remove once file hash fix is commited #2279
-            lib.prepend_string_to_file('pep_resource_resolve_hierarchy_pre(*INSTANCE, *CONTEXT,*OUT,*OPERATION,*HOST,*PARSER,*VOTE){*OUT="compound_resource_cache_refresh_policy=always";}\n', corefile)
-            time.sleep(2)  # remove once file hash fix is commited #2279
+        with temporary_core_file() as core:
+            time.sleep(1)  # remove once file hash fix is committed #2279
+            core.add_rule(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name])
+            time.sleep(1)  # remove once file hash fix is committed #2279
 
             # restart the server to reread the new core.re
             IrodsController().restart()
@@ -2628,6 +2578,8 @@ class Test_Resource_ReplicationWithinReplication(ChunkyDevTest, ResourceSuite, u
 
 
 class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
+    plugin_name = IrodsConfig().default_rule_engine_plugin
+    class_name = 'Test_Resource_ReplicationToTwoCompound'
 
     def setUp(self):
         with session.make_session_for_existing_admin() as admin_session:
@@ -2699,9 +2651,6 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
 
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
     def test_iget_prefer_from_archive__ticket_1660(self):
-        # define core.re filepath
-        corefile = IrodsConfig().core_re_directory + "/core.re"
-        backupcorefile = corefile + "--" + self._testMethodName
 
         # new file to put and get
         filename = "archivepolicyfile.txt"
@@ -2732,56 +2681,42 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
         print("original file diff confirmed")
 
         # manipulate the core.re to add the new policy
-        shutil.copy(corefile, backupcorefile)
-        with open(corefile, 'at') as f:
-            print('pep_resource_resolve_hierarchy_pre(*INSTANCE, *CONTEXT,*OUT,*OPERATION,*HOST,*PARSER,*VOTE){*OUT="compound_resource_cache_refresh_policy=always";}\n', file=f, end='')
+        with temporary_core_file() as core:
+            time.sleep(1)  # remove once file hash fix is committed #2279
+            core.add_rule(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name])
+            time.sleep(1)  # remove once file hash fix is committed #2279
 
-        # restart the server to reread the new core.re
-        IrodsController().restart()
+            # restart the server to reread the new core.re
+            IrodsController().restart()
 
-        # manually update the replicas in archive vaults
-        out, _, _ = self.admin.run_icommand('ils -L ' + filename)
-        archivereplica1phypath = filter(lambda x : "archiveResc1Vault" in x, out.split())[0]
-        archivereplica2phypath = filter(lambda x : "archiveResc2Vault" in x, out.split())[0]
-        print(archive1replicaphypath)
-        print(archive2replicaphypath)
-        with open(archivereplica1phypath, 'wt') as f:
-            print('MANUALLY UPDATED ON ARCHIVE 1 **AGAIN**\n', file=f, end='')
-        with open(archivereplica2phypath, 'wt') as f:
-            print('MANUALLY UPDATED ON ARCHIVE 2 **AGAIN**\n', file=f, end='')
+            # manually update the replicas in archive vaults
+            out, _, _ = self.admin.run_icommand('ils -L ' + filename)
+            archivereplica1phypath = filter(lambda x : "archiveResc1Vault" in x, out.split())[0]
+            archivereplica2phypath = filter(lambda x : "archiveResc2Vault" in x, out.split())[0]
+            print(archive1replicaphypath)
+            print(archive2replicaphypath)
+            with open(archivereplica1phypath, 'wt') as f:
+                print('MANUALLY UPDATED ON ARCHIVE 1 **AGAIN**\n', file=f, end='')
+            with open(archivereplica2phypath, 'wt') as f:
+                print('MANUALLY UPDATED ON ARCHIVE 2 **AGAIN**\n', file=f, end='')
 
-        # confirm the new content is on disk
-        with open(archivereplica1phypath) as f:
-            for line in f:
-                print(line)
-        with open(archivereplica2phypath) as f:
-            for line in f:
-                print(line)
-
-        # confirm the core file has new policy
-        print("----- confirm core has new policy ----")
-        with open(corefile) as f:
-            for line in f:
-                if 'pep_' in line:
+            # confirm the new content is on disk
+            with open(archivereplica1phypath) as f:
+                for line in f:
                     print(line)
+            with open(archivereplica2phypath) as f:
+                for line in f:
+                    print(line)
+
+            self.admin.assert_icommand(['iget', '-f', filename, retrievedfile])
+
+            # confirm this is the new archive file
+            with open(retrievedfile) as f:
+                for line in f:
+                    if 'AGAIN' in line:
+                        break
                 else:
-                    print('.')
-        print("----- confirmation done ----")
-
-        self.admin.assert_icommand(['iget', '-f', filename, retrievedfile])
-
-        # confirm this is the new archive file
-        with open(retrievedfile) as f:
-            for line in f:
-                print(line)
-                if 'AGAIN' in line:
-                    break
-            else:
-                assert False
-
-        # restore the original core.re
-        shutil.copy(backupcorefile, corefile)
-        os.remove(backupcorefile)
+                    assert False
 
         # local cleanup
         os.remove(filepath)
@@ -3079,16 +3014,18 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
 
 
 class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDevTest, ResourceSuite, unittest.TestCase):
+    plugin_name = IrodsConfig().default_rule_engine_plugin
+    class_name = 'Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive'
 
     def setUp(self):
         # back up core file
-        corefile = IrodsConfig().core_re_directory + "/core.re"
-        backupcorefile = corefile + "--" + self._testMethodName
-        shutil.copy(corefile, backupcorefile)
+        core = CoreFile()
+        backupcorefilepath = core.filepath + "--" + self._testMethodName
+        shutil.copy(core.filepath, backupcorefilepath)
 
-        # manipulate the core.re to add the new policy
-        with open(corefile, 'at') as f:
-            f.write('pep_resource_resolve_hierarchy_pre(*INSTANCE, *CONTEXT, *OUT, *OPERATION, *HOST, *PARSER, *VOTE){*OUT="compound_resource_cache_refresh_policy=always";}\n')
+        time.sleep(1)  # remove once file hash fix is committed #2279
+        core.add_rule(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name])
+        time.sleep(1)  # remove once file hash fix is committed #2279
 
         with session.make_session_for_existing_admin() as admin_session:
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
@@ -3136,10 +3073,10 @@ class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDev
         shutil.rmtree(irods_config.irods_directory + "/cacheResc2Vault", ignore_errors=True)
 
         # restore the original core.re
-        corefile = irods_config.core_re_directory + "/core.re"
-        backupcorefile = corefile + "--" + self._testMethodName
-        shutil.copy(backupcorefile, corefile)
-        os.remove(backupcorefile)
+        core = CoreFile()
+        backupcorefilepath = core.filepath + "--" + self._testMethodName
+        shutil.copy(backupcorefilepath, core.filepath)
+        os.remove(backupcorefilepath)
 
     def test_irm_specific_replica(self):
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed

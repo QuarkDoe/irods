@@ -30,7 +30,7 @@ static std::vector<std::string> GlobalDelayExecStack;
 int checkFilePerms( char *fileName );
 
 int
-fillSubmitConditions( char *action, char *inDelayCondition, bytesBuf_t *packedReiAndArgBBuf,
+fillSubmitConditions( const char *action, const char *inDelayCondition, bytesBuf_t *packedReiAndArgBBuf,
                       ruleExecSubmitInp_t *ruleSubmitInfo,  ruleExecInfo_t *rei );
 
 
@@ -107,73 +107,71 @@ fillSubmitConditions( char *action, char *inDelayCondition, bytesBuf_t *packedRe
  * \sa  none
  * \endcond
 **/
-int _delayExec(char*, char*, char*, ruleExecInfo_t*);
+int _delayExec(const char*, const char*, const char*, ruleExecInfo_t*);
 int delayExec( msParam_t *mPA, msParam_t *mPB, msParam_t *mPC, ruleExecInfo_t *rei ) {
     int i;
     char actionCall[MAX_ACTION_SIZE];
     char recoveryActionCall[MAX_ACTION_SIZE];
     char delayCondition[MAX_ACTION_SIZE];
 
-    rstrcpy( delayCondition, ( char * ) mPA->inOutStruct, MAX_ACTION_SIZE );
-    rstrcpy( actionCall, ( char * ) mPB->inOutStruct, MAX_ACTION_SIZE );
-    rstrcpy( recoveryActionCall, ( char * ) mPC->inOutStruct, MAX_ACTION_SIZE );
+    if ( mPA && mPA->inOutStruct ) {
+        rstrcpy( delayCondition, ( char * ) mPA->inOutStruct, MAX_ACTION_SIZE );
+    } else {
+        delayCondition[0] = '\0';
+    }
+    if ( mPB && mPB->inOutStruct ) {
+        rstrcpy( actionCall, ( char * ) mPB->inOutStruct, MAX_ACTION_SIZE );
+    } else {
+        actionCall[0] = '\0';
+    }
+    if ( mPC && mPC->inOutStruct ) {
+        rstrcpy( recoveryActionCall, ( char * ) mPC->inOutStruct, MAX_ACTION_SIZE );
+    } else {
+        recoveryActionCall[0] = '\0';
+    }
     i = _delayExec( actionCall, recoveryActionCall, delayCondition, rei );
     return i;
 }
 
-int _delayExec( char *inActionCall, char *recoveryActionCall,
-                char *delayCondition,  ruleExecInfo_t *rei ) {
+int _delayExec( const char *inActionCall, const char *recoveryActionCall,
+                const char *delayCondition,  ruleExecInfo_t *rei ) {
 
     char *args[MAX_NUM_OF_ARGS_IN_ACTION];
-    int i, argc;
-    ruleExecSubmitInp_t *ruleSubmitInfo;
+    int i;
     /* char action[MAX_ACTION_SIZE]; */
-    char tmpStr[NAME_LEN];
     bytesBuf_t *packedReiAndArgBBuf = NULL;
-    char *ruleExecId;
-    char *actionCall;
 
     RE_TEST_MACRO( "    Calling _delayExec" );
 
-    actionCall = inActionCall;
-
+    args[0] = NULL;
     args[1] = NULL;
-    argc = 0;
     /* Pack Rei and Args */
-    i = packReiAndArg( rei, args, argc, &packedReiAndArgBBuf );
+    i = packReiAndArg( rei, args, 0, &packedReiAndArgBBuf );
     if ( i < 0 ) {
-        if ( actionCall != inActionCall ) {
-            free( actionCall );
-        }
         return i;
     }
     /* fill Conditions into Submit Struct */
-    ruleSubmitInfo = ( ruleExecSubmitInp_t * ) malloc( sizeof( ruleExecSubmitInp_t ) );
+    ruleExecSubmitInp_t * ruleSubmitInfo = ( ruleExecSubmitInp_t * ) malloc( sizeof( ruleExecSubmitInp_t ) );
     memset(ruleSubmitInfo, 0, sizeof(ruleExecSubmitInp_t));
-    i  = fillSubmitConditions( actionCall, delayCondition, packedReiAndArgBBuf, ruleSubmitInfo, rei );
-    if ( actionCall != inActionCall ) {
-        free( actionCall );
-    }
+    i  = fillSubmitConditions( inActionCall, delayCondition, packedReiAndArgBBuf, ruleSubmitInfo, rei );
     if ( i < 0 ) {
         free( ruleSubmitInfo );
         return i;
     }
 
     /* Store ReiArgs Struct in a File */
+    char *ruleExecId = nullptr;
     i = rsRuleExecSubmit( rei->rsComm, ruleSubmitInfo, &ruleExecId );
-    if ( packedReiAndArgBBuf != NULL ) {
+    if ( packedReiAndArgBBuf ) {
         clearBBuf( packedReiAndArgBBuf );
         free( packedReiAndArgBBuf );
     }
-
     free( ruleSubmitInfo );
-    if ( i < 0 ) {
-        return i;
-    }
     free( ruleExecId );
-    snprintf( tmpStr, NAME_LEN, "%d", i );
 
-    GlobalDelayExecStack.push_back(tmpStr);
+    if ( i >= 0 ) {
+        GlobalDelayExecStack.push_back(std::to_string(i));
+    }
 
     return i;
 }
@@ -465,9 +463,6 @@ checkFilePerms( char *fileName ) {
 int
 msiFreeBuffer( msParam_t* memoryParam, ruleExecInfo_t *rei ) {
 
-    msParamArray_t *inMsParamArray;
-    msParam_t *mP;
-    execCmdOut_t *myExecCmdOut;
 
     RE_TEST_MACRO( "Loopback on msiFreeBuffer" );
 
@@ -476,11 +471,12 @@ msiFreeBuffer( msParam_t* memoryParam, ruleExecInfo_t *rei ) {
               !strcmp( ( char* )memoryParam->inOutStruct, "stderr" )
             )
        ) {
-        mP = NULL;
+        msParam_t *mP = nullptr;
+        msParamArray_t *inMsParamArray;
         inMsParamArray = rei->msParamArray;
         if ( ( ( mP = getMsParamByLabel( inMsParamArray, "ruleExecOut" ) ) != NULL ) &&
                 ( mP->inOutStruct != NULL ) ) {
-            myExecCmdOut = ( execCmdOut_t * ) mP->inOutStruct;
+            execCmdOut_t *myExecCmdOut = ( execCmdOut_t * ) mP->inOutStruct;
             if ( !strcmp( ( char* )memoryParam->inOutStruct, "stdout" ) ) {
                 if ( myExecCmdOut->stdoutBuf.buf != NULL ) {
                     free( myExecCmdOut->stdoutBuf.buf );
@@ -499,10 +495,11 @@ msiFreeBuffer( msParam_t* memoryParam, ruleExecInfo_t *rei ) {
         return 0;
     }
 
-    if ( memoryParam->inpOutBuf != NULL ) {
-        free( memoryParam->inpOutBuf );
+    if ( memoryParam->inpOutBuf ) {
+        free( memoryParam->inpOutBuf->buf );
+        memoryParam->inpOutBuf->len = 0;
+        memoryParam->inpOutBuf->buf = nullptr;
     }
-    memoryParam->inpOutBuf = NULL;
     return 0;
 
 }
