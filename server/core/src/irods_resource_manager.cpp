@@ -515,42 +515,27 @@ namespace irods {
 
     } // gather_leaf_bundle_for_child
 
-    error resource_manager::gather_leaf_bundles_for_resc(
-        const std::string&          _resc_name,
-        std::vector<leaf_bundle_t>& _bundles ) {
+    // throws irods::exception
+    std::vector<resource_manager::leaf_bundle_t> resource_manager::gather_leaf_bundles_for_resc(const std::string& _resource_name) {
         resource_ptr resc;
-        error ret = resolve(
-                        _resc_name,
-                        resc);
-        if(!ret.ok()) {
-            return PASS(ret);
+        error err = resolve(_resource_name, resc);
+        if (!err.ok()) {
+            THROW(err.code(), err.result());
         }
 
         std::vector<std::string> children;
         resc->children(children);
-
-        _bundles.resize(children.size());
-
-        for( size_t idx = 0;
-             idx < children.size();
-             ++idx ) {
-            ret = gather_leaf_bundle_for_child(
-                      children[idx],
-                      _bundles[idx] );
-            if(!ret.ok() ) {
-                return PASS(ret);
+        std::vector<leaf_bundle_t> ret;
+        ret.resize(children.size());
+        for (size_t i=0; i<children.size(); ++i) {
+            err = gather_leaf_bundle_for_child(children[i], ret[i]);
+            if (!err.ok()) {
+                THROW(err.code(), err.result());
             }
-            // sort for increase in search speed
-            // for rebalance operation
-            std::sort(
-                std::begin(_bundles[idx]),
-                std::end(_bundles[idx]) );
-
-        } // for idx
-
-        return SUCCESS();
-
-    } // gather_leaf_bundles_for_resc
+            std::sort(std::begin(ret[i]), std::end(ret[i]));
+        }
+        return ret;
+    }
 
 // =-=-=-=-=-=-=-
 // public - take results from genQuery, extract values and create resources
@@ -1063,6 +1048,36 @@ namespace irods {
 
         return result;
     } // call_maintenance_operations
+
+    /*
+     * construct a vector of all resource hierarchies in the system
+     * throws irods::exception
+     */
+    std::vector<std::string> resource_manager::get_all_resc_hierarchies( void ) {
+        std::vector<std::string> hier_list;
+        for ( const auto& entry : resource_name_map_ ) {
+            const resource_ptr resc = entry.second;
+            if ( resc->num_children() > 0 ) {
+                continue;
+            }
+
+            rodsLong_t leaf_id = 0;
+            error err = resc->get_property<rodsLong_t>(
+                            RESOURCE_ID,
+                            leaf_id );
+            if ( !err.ok() ) {
+                THROW( err.code(), err.result() );
+            }
+
+            std::string curr_hier;
+            err = leaf_id_to_hier( leaf_id, curr_hier );
+            if ( !err.ok() ) {
+                THROW( err.code(), err.result() );
+            }
+            hier_list.push_back( curr_hier );
+        }
+        return hier_list;
+    } // get_all_resc_hierarchies
 
     error resource_manager::hier_to_leaf_id(
         const std::string& _hier,

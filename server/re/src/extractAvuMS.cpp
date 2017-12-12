@@ -216,19 +216,25 @@ int msiGetTaggedValueFromString( msParam_t *inTagParam, msParam_t *inStrParam,
 
     t1 = ( char * ) inStrParam->inOutStruct;
     pstr[0] = ( char * ) malloc( strlen( ( char* )inTagParam->inOutStruct ) + 6 );
-    pstr[1] = ( char * ) malloc( strlen( ( char* )inTagParam->inOutStruct ) + 6 );
     sprintf( pstr[0], "<%s>", ( char * ) inTagParam->inOutStruct );
     j = regcomp( &preg[0], pstr[0], REG_EXTENDED );
     if ( j != 0 ) {
         regerror( j, &preg[0], errbuff, sizeof( errbuff ) );
         rodsLog( LOG_NOTICE, "msiGetTaggedValueFromString: Error in regcomp: %s\n", errbuff );
+        regfree( &preg[0] );
+        free( pstr[0] );
         return INVALID_REGEXP;
     }
+    pstr[1] = ( char * ) malloc( strlen( ( char* )inTagParam->inOutStruct ) + 6 );
     sprintf( pstr[1], "</%s>", ( char * ) inTagParam->inOutStruct );
     j = regcomp( &preg[1], pstr[1], REG_EXTENDED );
     if ( j != 0 ) {
         regerror( j, &preg[1], errbuff, sizeof( errbuff ) );
         rodsLog( LOG_NOTICE, "msiGetTaggedValueFromString: Error in regcomp: %s\n", errbuff );
+        regfree( &preg[0] );
+        regfree( &preg[1] );
+        free( pstr[0] );
+        free( pstr[1] );
         return INVALID_REGEXP;
     }
     /*    rodsLog (LOG_NOTICE,"TTTTT:%s",t1);*/
@@ -331,7 +337,6 @@ msiExtractTemplateMDFromBuf( msParam_t* bufParam, msParam_t* tagParam,
     memcpy( t, metaObjBuf->buf, metaObjBuf->len );
     metaDataPairs = ( keyValPair_t* )malloc( sizeof( keyValPair_t ) );
     memset(metaDataPairs,0,sizeof(keyValPair_t));
-    t1 = t;
     for ( i = 0; i  < tagValues->len ; i++ ) {
         t1 = t;
         j = regcomp( &preg[0], tagValues->preTag[i], REG_EXTENDED );

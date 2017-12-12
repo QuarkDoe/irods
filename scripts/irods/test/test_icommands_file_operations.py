@@ -53,6 +53,21 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
                             "Extra files in vault:\n" + str(vault_files - set(local_files)))
         return (local_dir, local_files)
 
+    def ichksum_with_multiple_bad_replicas(self):
+        filename = 'checksum_test.txt'
+        filepath = lib.create_local_testfile(filename)
+        self.admin.assert_icommand("iput -K -R " + self.testresc + " " + filename)
+        self.admin.assert_icommand("irepl -R " + self.anotherresc + " " + filename)
+        with open(os.path.join(self.anothervault, "home", self.admin.username, self.admin._session_id, filename), "w") as f:
+            f.write("SHAS FOR THE SHA256 GOD MD5 FOR THE MD5 THRONE")
+        with open(os.path.join(self.testvault, "home", self.admin.username, self.admin._session_id, filename), "w") as f:
+            f.write("SHAS FOR THE SHA256 GOD MD5 FOR THE MD5 THRONE")
+        out, _, _ = self.admin.run_icommand("ichksum -aK " + filename)
+        search_string = 'hierarchy [' + self.testresc + ']'
+        self.assertTrue(search_string in out, 'String missing from ichksum -aK output:\n\t' + search_string)
+        search_string = 'hierarchy [' + self.anotherresc + ']'
+        self.assertTrue(search_string in out, 'String missing from ichksum -aK output:\n\t' + search_string)
+
     def iput_to_root_collection(self):
         filename = 'original.txt'
         filepath = lib.create_local_testfile(filename)
@@ -132,14 +147,14 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
         out, _ = lib.execute_command('find {user_vault_dir} -type f'.format(**locals()))
         self.assertEqual(out, '')
 
-    def test_iput_r_with_kw_and_obj_count(self):
+    def test_iput_r_with_kw(self):
         # test settings
         depth = 50
         files_per_level = 5
         file_size = 5
 
         # make local nested dirs
-        coll_name = "test_iput_r_with_kw_and_obj_count"
+        coll_name = "test_iput_r_with_kw"
         local_dir = os.path.join(self.testing_tmp_dir, coll_name)
         local_dirs = lib.make_deep_local_tmp_dir(local_dir, depth, files_per_level, file_size)
 
@@ -155,13 +170,10 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
         self.user0.assert_icommand("iput -r {local_dir}".format(**locals()), "EMPTY")
 
         # look for occurences of debug sequences in the log
-        obj_count_string = 'DEBUG: unix_file_resolve_hierarchy: object_count = [{0}]'.format(files_per_level * depth)
         rec_op_kw_string = 'DEBUG: unix_file_resolve_hierarchy: recursiveOpr = [1]'
-        obj_count_string_count = lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, obj_count_string, start_index=initial_size_of_server_log)
         rec_op_kw_string_count = lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, rec_op_kw_string, start_index=initial_size_of_server_log)
 
         # assertions
-        self.assertEqual(obj_count_string_count, files_per_level * depth)
         self.assertEqual(rec_op_kw_string_count, files_per_level * depth)
 
         # restart server with original environment
@@ -788,3 +800,55 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
             self.user0.assert_icommand(['irm', '-rf', 'subdir'])
             os.unlink(badpath)
         os.unlink(localpath)
+
+    def test_ichksum_replica_reporting__3499(self):
+        initial_file_contents = 'a'
+        filename = 'test_ichksum_replica_reporting__3499'
+        with open(filename, 'wb') as f:
+            f.write(initial_file_contents)
+        self.admin.assert_icommand(['iput', '-K', filename])
+        vault_session_path = self.admin.get_vault_session_path()
+        final_file_contents = 'b'
+        with open(os.path.join(vault_session_path, filename), 'wb') as f:
+            f.write(final_file_contents)
+        out, err, rc = self.admin.run_icommand(['ichksum', '-KarR', 'demoResc', self.admin.session_collection])
+        self.assertNotEqual(rc, 0)
+        self.assertTrue(filename in out, out)
+        self.assertTrue('replNum [0]' in out, out)
+        self.assertTrue('USER_CHKSUM_MISMATCH' in err, err)
+        os.unlink(filename)
+
+    def test_irm_colloprstat__3572(self):
+        collection_to_delete = 'collection_to_delete'
+        self.admin.assert_icommand(['imkdir', collection_to_delete])
+        filename = 'test_irm_colloprstat__3572'
+        lib.make_file(filename, 50)
+        for i in range(10):
+            self.admin.assert_icommand(['iput', filename, '{0}/file_{1}'.format(collection_to_delete, str(i))])
+
+        initial_size_of_server_log = lib.get_file_size_by_path(paths.server_log_path())
+        self.admin.assert_icommand(['irm', '-rf', collection_to_delete])
+        self.assertEqual(0, lib.count_occurrences_of_string_in_log(paths.server_log_path(), 'ERROR', start_index=initial_size_of_server_log))
+        os.unlink(filename)
+
+    def test_ichksum_file_size_verification__3537(self):
+        cfg = IrodsConfig()
+        if cfg.catalog_database_type == "postgres":
+            filename = 'test_ichksum_file_size_verification__3537'
+            file_size = 50
+            lib.make_file(filename, file_size)
+            self.admin.assert_icommand(['iput', '-K', filename])
+            self.admin.assert_icommand(['ichksum', '-K', filename], 'STDOUT_SINGLELINE', 'Failed checksum = 0')
+            self.admin.assert_icommand(['ichksum', '-K', '--verify', filename], 'STDOUT_SINGLELINE', 'Failed checksum = 0')
+            from .. import database_connect
+            with contextlib.closing(database_connect.get_database_connection(cfg)) as connection:
+                with contextlib.closing(connection.cursor()) as cursor:
+                    cursor.execute("update r_data_main set data_size = {0} where data_name = '{1}';".format(file_size-1, filename))
+                    cursor.commit()
+
+            self.admin.assert_icommand(['ichksum', '-K', filename], 'STDOUT_SINGLELINE', 'Failed checksum = 0')
+            rc, _, _ = self.admin.assert_icommand(['ichksum', '-K', '--verify', filename], 'STDERR_SINGLELINE', 'USER_FILE_SIZE_MISMATCH')
+            self.assertNotEqual(rc, 0)
+            os.unlink(filename)
+        else:
+            print('skipping test_ichksum_file_size_verification__3537 due to unsupported database for this test.')

@@ -6,6 +6,7 @@
 #include "index.hpp"
 #include "configuration.hpp"
 #include "region.h"
+#include "checksum.hpp"
 
 #include "cache.proto.hpp"
 #include "proto.hpp"
@@ -13,8 +14,8 @@
 #include "end.instance.hpp"
 
 Cache *copyCache( unsigned char **buf, size_t size, Cache *c );
-Cache *restoreCache( const char*, unsigned char *buf );
+Cache *restoreCache( const char* );
 void applyDiff( unsigned char *pointers, long pointersSize, long diff, long pointerDiff );
 void applyDiffToPointers( unsigned char *pointers, long pointersSize, long pointerDiff );
-int updateCache( const char*, unsigned char *shared, size_t size, Cache *cache, int processType );
+int updateCache( const char*, size_t size, Cache *cache );
 #endif

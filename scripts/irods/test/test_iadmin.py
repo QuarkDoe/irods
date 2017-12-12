@@ -59,6 +59,22 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
     # iadmin
     ###################
 
+    def test_ibun__issue_3571(self):
+        test_file = "ibun_test_file"
+        lib.make_file(test_file, 1000)
+        
+        tar_path = self.admin.session_collection + '/somefile.tar'
+        dir_path = self.admin.session_collection + '/somedir'
+
+        self.admin.assert_icommand("imkdir " + dir_path)
+        for i in range(257):
+            self.admin.assert_icommand("iput %s %s/foo%d" % (test_file, dir_path, i))
+
+        self.admin.assert_icommand("ibun -cD tar " + tar_path + " " + dir_path)
+
+        self.admin.assert_icommand("irm -rf " + dir_path)
+        self.admin.assert_icommand("irm -rf " + tar_path)
+
     def test_tokens(self):
         self.admin.assert_icommand(['iadmin', 'at', 'user_type', 'rodstest', self.admin.username])
         self.admin.assert_icommand(['iadmin', 'lt', 'user_type'], 'STDOUT_SINGLELINE', 'rodstest')
@@ -96,6 +112,11 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
             self.admin.assert_icommand(['iadmin', 'rua', username, authentication_name])
         finally :
             self.admin.assert_icommand(['iadmin', 'rmuser', username])
+
+    def test_quota_actions_3509(self):
+        self.admin.assert_icommand("iadmin suq " + self.user0.username + " " + self.testresc + " 50")
+        self.admin.assert_icommand("iadmin suq " + self.user1.username + " " + self.testresc + " 60")
+        self.admin.assert_icommand("iadmin cu")
 
     # PASSWORDS
 
@@ -358,6 +379,13 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
         self.admin.assert_icommand("iadmin lr " + self.testresc, 'STDOUT_SINGLELINE', mycomment)
         self.admin.assert_icommand("iadmin modresc " + self.testresc + " comment 'none'")
         self.admin.assert_icommand_fail("iadmin lr " + self.testresc, 'STDOUT_SINGLELINE', mycomment)
+
+    def test_modify_resource_data_paths__3598(self):
+        self.admin.assert_icommand("ils -L", 'STDOUT_SINGLELINE', "Vault")
+        self.admin.assert_icommand("iadmin modrescdatapaths demoResc /var/lib/irods/Vault/ /var/lib/irods/NEWVAULT/", 'STDOUT_SINGLELINE', 'Warning', input='yes\n')
+        self.admin.assert_icommand("ils -L", 'STDOUT_SINGLELINE', 'NEWVAULT')
+        self.admin.assert_icommand("iadmin modrescdatapaths demoResc /var/lib/irods/NEWVAULT/ /var/lib/irods/Vault/", 'STDOUT_SINGLELINE', 'Warning', input='yes\n')
+        self.admin.assert_icommand("ils -L", 'STDOUT_SINGLELINE', "Vault")
 
     def test_create_and_remove_new_user(self):
         testuser1 = "testaddandremoveuser"
@@ -850,6 +878,66 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
         self.admin.assert_icommand("irm -rf " + dir_path)
         self.admin.assert_icommand("irm -rf " + tar_path)
 
+    @unittest.skip( "configuration requires sudo to create the environment")
+    def test_rebalance_for_repl_node_with_different_users_with_write_failure__issue_3674(self):
+        #  sudo truncate -s 3M /tmp/irods/badfs_file
+        #  sudo mkfs -t ext3 /tmp/irods/badfs_file
+        #  sudo mount -t ext3 /tmp/irods/badfs_file /tmp/irods/bad_fs/
+        #  sudo chmod 777 /tmp/irods/bad_fs/
+
+
+        output = commands.getstatusoutput("hostname")
+        hostname = output[1]
+
+        # =-=-=-=-=-=-=-
+        # STANDUP
+        self.admin.assert_icommand("iadmin mkresc repl replication", 'STDOUT_SINGLELINE', "Creating")
+        self.admin.assert_icommand("iadmin mkresc leaf_a unixfilesystem " + hostname +
+                                   ":/tmp/irods/pydevtest_leaf_a", 'STDOUT_SINGLELINE', "Creating")  # unix
+        self.admin.assert_icommand("iadmin mkresc leaf_b unixfilesystem " + hostname +
+                                   ":/tmp/irods/bad_fs/pydevtest_leaf_b", 'STDOUT_SINGLELINE', "Creating")  # unix
+        self.admin.assert_icommand("iadmin addchildtoresc repl leaf_a")
+        self.admin.assert_icommand("iadmin addchildtoresc repl leaf_b")
+
+        # =-=-=-=-=-=-=-
+        # place data into the resource
+        test_file = "rebalance_test_file"
+        # test for single buffer put
+        #lib.make_file(test_file, 2000000)
+
+        # test for parallel transfer
+        lib.make_file(test_file, 40000000)
+
+        self.admin.assert_icommand("iadmin modresc leaf_b status down")
+
+        self.user0.assert_icommand("iput -R repl %s foo" % (test_file))
+
+        self.admin.assert_icommand("ils -Lr /", 'STDOUT_SINGLELINE', self.admin.username)
+
+        self.admin.assert_icommand("iadmin modresc leaf_b status up")
+
+        # =-=-=-=-=-=-=-
+        # call rebalance function - the thing were actually testing... finally.
+        # test for single buffer put
+        #self.admin.assert_icommand("iadmin modresc repl rebalance", 'STDERR_SINGLELINE', 'SYS_COPY_LEN_ERR')
+
+        # test for parallel transfer
+        self.admin.assert_icommand("iadmin modresc repl rebalance", 'STDERR_SINGLELINE', 'UNIX_FILE_WRITE_ERR')
+
+        # =-=-=-=-=-=-=-
+        # visualize our rebalance
+        self.admin.assert_icommand("ils -Lr /", 'STDOUT_SINGLELINE', self.admin.username)
+
+        # =-=-=-=-=-=-=-
+        # TEARDOWN
+        self.user0.assert_icommand("irm -f foo")
+
+        self.admin.assert_icommand("iadmin rmchildfromresc repl leaf_b")
+        self.admin.assert_icommand("iadmin rmchildfromresc repl leaf_a")
+        self.admin.assert_icommand("iadmin rmresc leaf_b")
+        self.admin.assert_icommand("iadmin rmresc leaf_a")
+        self.admin.assert_icommand("iadmin rmresc repl")
+
     def test_rebalance_for_repl_node_with_different_users(self):
         hostname = lib.get_hostname()
 
@@ -1174,6 +1262,20 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
         self.admin.assert_icommand(['iadmin', 'aua', username, authentication_name])
         out, _, _ = self.admin.run_icommand(['iadmin', 'lua', username])
         self.assertEqual(len(out.splitlines()), 1, 'iadmin lua returned more than one line')
+
+    def test_aua_multiple_distinguished_name__issue_3620(self):
+        username = 'issue_3620_user'
+        authentication_name_1 = '3620_user_1@TEST.AUTHENTICATION'
+        authentication_name_2 = '3620_user_2@TEST.AUTHENTICATION'
+        self.admin.assert_icommand(['iadmin', 'mkuser', username, 'rodsuser'])
+        self.admin.assert_icommand(['iadmin', 'aua', username, authentication_name_1])
+        self.admin.assert_icommand(['iadmin', 'aua', username, authentication_name_1])
+        self.admin.assert_icommand(['iadmin', 'aua', username, authentication_name_2])
+        self.admin.assert_icommand(['iadmin', 'aua', username, authentication_name_2])
+        self.admin.assert_icommand(['iadmin', 'aua', username, authentication_name_1])
+        _, out, _ = self.admin.assert_icommand(['iadmin', 'lua', username], 'STDOUT_MULTILINE', [username + ' ' + authentication_name_1, username + ' ' + authentication_name_2])
+        self.assertEqual(len(out.splitlines()), 2, 'iadmin lua did not return exactly two lines')
+
 
     def test_addchildtoresc_forbidden_characters_3449(self):
         self.admin.assert_icommand(['iadmin', 'mkresc', 'parent', 'passthru'], 'STDOUT_SINGLELINE', 'passthru')

@@ -29,6 +29,8 @@
 #include "irods_repl_rebalance.hpp"
 #include "irods_kvp_string_parser.hpp"
 #include "irods_random.hpp"
+#include "irods_exception.hpp"
+#include "rsGenQuery.hpp"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -79,6 +81,7 @@
 const std::string NUM_REPL_KW( "num_repl" );
 const std::string READ_KW( "read" );
 const std::string READ_RANDOM_POLICY( "random" );
+const std::string OPERATION_KW( "operation" );
 
 /// @brief Check the general parameters passed in to most plugin functions
 template< typename DEST_TYPE >
@@ -95,9 +98,7 @@ irods::error replCheckParams(
     return result;
 }
 
-/// =-=-=-=-=-=-=-
-/// @brief limit of the number of repls to operate upon during rebalance
-const int DEFAULT_LIMIT = 500;
+const int DEFAULT_REBALANCE_BATCH_SIZE = 500;
 
 // =-=-=-=-=-=-=-
 // 2. Define operations which will be called by the file*
@@ -479,6 +480,13 @@ irods::error repl_file_modified(
             ret = child->call( _ctx.comm(), irods::RESOURCE_OP_MODIFIED, _ctx.fco() );
             if ( ( result = ASSERT_PASS( ret, "Failed while calling child operation." ) ).ok() ) {
 
+                // only call the replication mechanism on create and write operations
+                std::string operation;
+                _ctx.prop_map().get<std::string>(OPERATION_KW, operation);
+                if(irods::CREATE_OPERATION != operation && irods::WRITE_OPERATION != operation) {
+                    return SUCCESS();
+                }
+
                 irods::hierarchy_parser sub_parser;
                 sub_parser.set_string( file_obj->in_pdmo() );
                 std::string name;
@@ -589,8 +597,8 @@ irods::error repl_file_open(
 // interface for POSIX Read
 irods::error repl_file_read(
     irods::plugin_context& _ctx,
-    void*                          _buf,
-    int                            _len ) {
+    void*                  _buf,
+    const int              _len ) {
     irods::error result = SUCCESS();
     irods::error ret;
 
@@ -614,7 +622,7 @@ irods::error repl_file_read(
             result = PASSMSG( msg.str(), ret );
         }
         else {
-            ret = child->call<void*, int>( _ctx.comm(), irods::RESOURCE_OP_READ, _ctx.fco(), _buf, _len );
+            ret = child->call<void*, const int>( _ctx.comm(), irods::RESOURCE_OP_READ, _ctx.fco(), _buf, _len );
             if ( !ret.ok() ) {
                 std::stringstream msg;
                 msg << __FUNCTION__;
@@ -634,8 +642,8 @@ irods::error repl_file_read(
 // interface for POSIX Write
 irods::error repl_file_write(
     irods::plugin_context& _ctx,
-    void*                          _buf,
-    int                            _len ) {
+    const void*            _buf,
+    const int              _len ) {
     irods::error result = SUCCESS();
     irods::error ret;
     // get the list of objects that need to be replicated
@@ -662,7 +670,7 @@ irods::error repl_file_write(
             result = PASSMSG( msg.str(), ret );
         }
         else {
-            ret = child->call<void*, int>( _ctx.comm(), irods::RESOURCE_OP_WRITE, _ctx.fco(), _buf, _len );
+            ret = child->call<const void*, const int>( _ctx.comm(), irods::RESOURCE_OP_WRITE, _ctx.fco(), _buf, _len );
             if ( !ret.ok() ) {
                 std::stringstream msg;
                 msg << __FUNCTION__;
@@ -796,8 +804,8 @@ irods::error repl_file_stat(
 // interface for POSIX lseek
 irods::error repl_file_lseek(
     irods::plugin_context& _ctx,
-    long long                       _offset,
-    int                             _whence ) {
+    const long long        _offset,
+    const int              _whence ) {
     irods::error result = SUCCESS();
     irods::error ret;
 
@@ -821,7 +829,7 @@ irods::error repl_file_lseek(
             result = PASSMSG( msg.str(), ret );
         }
         else {
-            ret = child->call<long long, int>( _ctx.comm(), irods::RESOURCE_OP_LSEEK, _ctx.fco(), _offset, _whence );
+            ret = child->call<const long long, const int>( _ctx.comm(), irods::RESOURCE_OP_LSEEK, _ctx.fco(), _offset, _whence );
             if ( !ret.ok() ) {
                 std::stringstream msg;
                 msg << __FUNCTION__;
@@ -1460,18 +1468,17 @@ irods::error replValidOperation(
     try {
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object >( _ctx.fco() );
         // if the file object has a requested replica then fail since that circumvents the coordinating nodes management.
-        if ( false && file_obj->repl_requested() >= 0 ) { // For migration we no longer have this restriction but will be added back later - harry
+        if ( file_obj->repl_requested() >= 0 && false ) { // For migration we no longer have this restriction but will be added back later - harry
             std::stringstream msg;
             msg << __FUNCTION__;
             msg << " - Requesting replica: " << file_obj->repl_requested();
             msg << "\tCannot request specific replicas from replicating resource.";
             result = ERROR( INVALID_OPERATION, msg.str() );
         }
-
         else {
             // if the api commands involve replication we have to error out since managing replicas is our job
             char* in_repl = getValByKey( &file_obj->cond_input(), IN_REPL_KW );
-            if ( false && in_repl != NULL ) { // For migration we no longer have this restriction but might be added later. - harry
+            if ( in_repl != NULL && false ) { // For migration we no longer have this restriction but might be added later. - harry
                 std::stringstream msg;
                 msg << __FUNCTION__;
                 msg << " - Using repl or trim commands on a replication resource is not allowed. ";
@@ -1610,6 +1617,10 @@ irods::error repl_file_resolve_hierarchy(
     const std::string*       _curr_host,
     irods::hierarchy_parser* _inout_parser,
     float*                   _out_vote ) {
+
+    // store the operation for later decision making - issue #3525
+    _ctx.prop_map().set<std::string>(OPERATION_KW, *_operation);
+
     irods::error ret;
     if (*_operation != irods::UNLINK_OPERATION) {
         // recreate the child list for a write operation as the
@@ -1673,180 +1684,63 @@ irods::error repl_file_resolve_hierarchy(
 
 } // repl_file_resolve_hierarchy
 
-static
-irods::error get_child_name_from_bundle(
-    const std::string&   _resc_name,
-    const leaf_bundle_t& _bundle,
-    std::string&         _child_name ) {
-
-    std::string hier;
-    
-    irods::error ret = resc_mgr.leaf_id_to_hier(
-                           _bundle[0],
-                           hier); 
-    if(!ret.ok()) {
-        return PASS(ret);
+irods::error call_rebalance_on_children(irods::plugin_context& _ctx) {
+    irods::resource_child_map *cmap_ptr;
+    _ctx.prop_map().get<irods::resource_child_map*>(irods::RESC_CHILD_MAP_PROP, cmap_ptr);
+    for (auto& entry : *cmap_ptr) {
+        irods::error ret = entry.second.second->call(_ctx.comm(), irods::RESOURCE_OP_REBALANCE, _ctx.fco() );
+        if (!ret.ok()) {
+            return PASS(ret);
+        }
     }
-
-    irods::hierarchy_parser parse;
-    ret = parse.set_string(hier);
-    if(!ret.ok()) {
-        return PASS(ret);
-    }
-
-    ret = parse.next(_resc_name,_child_name);
-    if(!ret.ok()) {
-        return PASS(ret);
-    }
-
     return SUCCESS();
+}
 
-} // get_child_name_from_bundle
+// throws irods::exception
+int get_rebalance_batch_size(irods::plugin_context& _ctx) {
+    if (!_ctx.rule_results().empty()) {
+        irods::kvp_map_t kvp;
+        irods::error kvp_err = irods::parse_kvp_string(_ctx.rule_results(), kvp);
+        if (!kvp_err.ok()) {
+            THROW(kvp_err.code(), kvp_err.result());
+        }
 
-// =-=-=-=-=-=-=-
+        const auto it = kvp.find(irods::REPL_LIMIT_KEY);
+        if (it != kvp.end()) {
+            try {
+                return boost::lexical_cast<int>(it->second);
+            } catch (const boost::bad_lexical_cast&) {
+                THROW(SYS_INVALID_INPUT_PARAM, boost::format("failed to cast string [%s] to integer") % it->second);
+            }
+        }
+    }
+    return DEFAULT_REBALANCE_BATCH_SIZE;
+}
+
 // repl_file_rebalance - code which would rebalance the subtree
 irods::error repl_file_rebalance(
     irods::plugin_context& _ctx ) {
-    using namespace irods;
-
-    // =-=-=-=-=-=-=-
-    // forward request for rebalance to children first, then
-    // rebalance ourselves.
-
-    resource_child_map* cmap_ref;
-    _ctx.prop_map().get< resource_child_map* >(
-            RESC_CHILD_MAP_PROP,
-            cmap_ref );
-
-    error result = SUCCESS();
-    resource_child_map::iterator itr = cmap_ref->begin();
-    for ( ; itr != cmap_ref->end(); ++itr ) {
-        error ret = itr->second.second->call(
-                               _ctx.comm(),
-                               RESOURCE_OP_REBALANCE,
-                               _ctx.fco() );
-        if ( !ret.ok() ) {
-            log( PASS( ret ) );
-            result = ret;
-        }
+    irods::error result = call_rebalance_on_children(_ctx);
+    if (!result.ok()) {
+        return PASS(result);
     }
 
-    // =-=-=-=-=-=-=-
-    // if our children had errors, then we bail
-    if ( !result.ok() ) {
-        return PASS( result );
+    std::string resource_name;
+    result = _ctx.prop_map().get<std::string>(irods::RESOURCE_NAME, resource_name);
+    if (!result.ok()) {
+        return PASS(result);
     }
 
-    // =-=-=-=-=-=-=-
-    // get the property 'name' of this resource
-    std::string resc_name;
-    error ret = _ctx.prop_map().get< std::string >(
-                           RESOURCE_NAME,
-                           resc_name );
-    if ( !ret.ok() ) {
-        return PASS( ret );
+    try {
+        const int batch_size = get_rebalance_batch_size(_ctx);
+        const std::vector<leaf_bundle_t> leaf_bundles = resc_mgr.gather_leaf_bundles_for_resc(resource_name);
+        irods::update_out_of_date_replicas(_ctx.comm(), leaf_bundles, batch_size, resource_name);
+        irods::create_missing_replicas(_ctx.comm(), leaf_bundles, batch_size, resource_name);
+    } catch (const irods::exception& e) {
+        return irods::error(e);
     }
-
-    // =-=-=-=-=-=-=-
-    // determine limit size
-    int limit = DEFAULT_LIMIT;
-    if ( !_ctx.rule_results().empty() ) {
-        kvp_map_t kvp;
-        error kvp_err = parse_kvp_string(
-                                   _ctx.rule_results(),
-                                   kvp );
-        if ( !kvp_err.ok() ) {
-            return PASS( kvp_err );
-        }
-
-        std::string limit_str = kvp[ REPL_LIMIT_KEY ];
-        if ( !limit_str.empty() ) {
-            try {
-                limit = boost::lexical_cast<int>( limit_str );
-
-            }
-            catch ( const boost::bad_lexical_cast& ) {
-                std::stringstream msg;
-                msg << "failed to cast value ["
-                    << limit_str
-                    << "] to an integer";
-                return ERROR(
-                           SYS_INVALID_INPUT_PARAM,
-                           msg.str() );
-            }
-        }
-
-    } // if rule results not empty
-
-    // =-=-=-=-=-=-=-
-    // determine distinct root count ( may have changed )
-    int status = 0;
-    long long root_count = 0;
-    status = chlGetDistinctDataObjCountOnResource(
-                 resc_name.c_str(),
-                 root_count );
-    if ( status < 0 ) {
-        std::stringstream msg;
-        msg << "failed to get distinct count for ["
-            << resc_name
-            << "]";
-        return ERROR( status, msg.str().c_str() );
-    }
-
-    // =-=-=-=-=-=-=-
-    // gather bundles of leaf ids
-    std::vector<leaf_bundle_t> leaf_bundles;
-    ret = resc_mgr.gather_leaf_bundles_for_resc(
-              resc_name,
-              leaf_bundles);
-    if(!ret.ok()) {
-        return PASS(ret);
-    }
-
-    // =-=-=-=-=-=-=-
-    // iterate over the leaf bundles
-    for( size_t idx = 0;
-         idx < leaf_bundles.size();
-         ++idx ) {
-        std::string child_name;
-        error get_ret = get_child_name_from_bundle(
-                            resc_name,
-                            leaf_bundles[idx],
-                            child_name );
-        if(!get_ret.ok() ) {
-            irods::log(PASS(get_ret));
-            continue;
-        }
-
-        dist_child_result_t results;
-        error ga_ret = gather_data_objects_for_rebalance(
-                                  _ctx.comm(),
-                                  limit,
-                                  idx,
-                                  leaf_bundles,
-                                  results );
-        if ( !ga_ret.ok() ) {
-            return PASS(ga_ret);
-        }
-
-        if( !results.empty() ) {
-            error proc_ret = proc_results_for_rebalance(
-                                 _ctx.comm(),
-                                 resc_name,
-                                 child_name,
-                                 idx,
-                                 leaf_bundles,
-                                 results );
-            if ( !proc_ret.ok() ) {
-                return PASS( proc_ret );
-            }
-        }
-
-    } // for c_itr
-
     return SUCCESS();
-
-} // repl_file_rebalance
+}
 
 // Called when a files entry is modified in the ICAT
 irods::error repl_file_notify(
@@ -1995,15 +1889,15 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         function<error(plugin_context&)>(
             repl_file_open ) );
 
-    resc->add_operation<void*,int>(
+    resc->add_operation<void*,const int>(
         irods::RESOURCE_OP_READ,
         std::function<
-            error(irods::plugin_context&,void*,int)>(
+            error(irods::plugin_context&,void*,const int)>(
                 repl_file_read ) );
 
-    resc->add_operation<void*,int>(
+    resc->add_operation<const void*,const int>(
         irods::RESOURCE_OP_WRITE,
-        function<error(plugin_context&,void*,int)>(
+        function<error(plugin_context&,const void*,const int)>(
             repl_file_write ) );
 
     resc->add_operation(
@@ -2046,9 +1940,9 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         function<error(plugin_context&)>(
             repl_file_getfs_freespace ) );
 
-    resc->add_operation<long long, int>(
+    resc->add_operation<const long long, const int>(
         irods::RESOURCE_OP_LSEEK,
-        function<error(plugin_context&, long long, int)>(
+        function<error(plugin_context&, const long long, const int)>(
             repl_file_lseek ) );
 
     resc->add_operation(
@@ -2117,6 +2011,3 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
     return dynamic_cast<irods::resource*>( resc );
 
 } // plugin_factory
-
-
-

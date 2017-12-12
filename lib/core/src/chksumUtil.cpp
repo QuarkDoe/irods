@@ -98,6 +98,9 @@ chksumDataObjUtil( rcComm_t *conn, char *srcPath,
         rodsLogError( LOG_ERROR, status,
                       "chksumDataObjUtil: rcDataObjChksum error for %s",
                       dataObjInp->objPath );
+        printErrorStack(conn->rError);
+        freeRError(conn->rError);
+        conn->rError = NULL;
         return status;
     }
     else {
@@ -168,6 +171,15 @@ initCondForChksum( rodsArguments_t *rodsArgs,
     if ( rodsArgs->resource == True ) {
         addKeyVal( &dataObjInp->condInput, RESC_NAME_KW,
                    rodsArgs->resourceString );
+    }
+
+    if (rodsArgs->verify == True) {
+        if (rodsArgs->verifyChecksum == True) {
+            addKeyVal( &dataObjInp->condInput, VERIFY_VAULT_SIZE_EQUALS_DATABASE_SIZE_KW, "" );
+        } else {
+            rodsLog(LOG_ERROR, "initCondForChksum: if --verify is used, -K must also be used");
+            return USER_OPTION_INPUT_ERR;
+        }
     }
 
     /* XXXXX need to add -u register cond */
@@ -258,4 +270,3 @@ chksumCollUtil( rcComm_t *conn, char *srcColl, rodsEnv *myRodsEnv,
         return status;
     }
 }
-

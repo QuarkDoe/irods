@@ -52,22 +52,22 @@ class Test_iRsync(ResourceBase, unittest.TestCase):
         self.user0.assert_icommand("ils -L {base_name}".format(**locals()), "STDOUT_SINGLELINE", "ec8bb3b24d5b0f1b5bdf8c8f0f541ee6")
 
         self.user0.assert_icommand("ichksum -r -K {base_name}".format(**locals()), "STDOUT_SINGLELINE", "Total checksum performed = 5, Failed checksum = 0")
-        self.user0.assert_icommand("irsync -v -r -K -l {local_dir} i:{base_name}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       39.999 MB --- a match no sync required")
+        self.user0.assert_icommand("irsync -v -r -K -l {local_dir} i:{base_name}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       40.000 MB --- a match no sync required")
 
         self.user0.assert_icommand("irm -f {base_name}/junk0001".format(**locals()), "EMPTY")
         self.user0.assert_icommand_fail("ils -L {base_name}".format(**locals()), "STDOUT_SINGLELINE", "junk0001")
 
         self.user0.assert_icommand("irsync -v -r -K -l {local_dir} i:{base_name}".format(**locals()), "STDOUT_SINGLELINE", "junk0001   41943040   N")
-        self.user0.assert_icommand("irsync -v -r -K {local_dir} i:{base_name}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       39.999 MB ")
-        self.user0.assert_icommand("irsync -v -r -K -l {local_dir} i:{base_name}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       39.999 MB --- a match no sync required")
+        self.user0.assert_icommand("irsync -v -r -K {local_dir} i:{base_name}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       40.000 MB ")
+        self.user0.assert_icommand("irsync -v -r -K -l {local_dir} i:{base_name}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       40.000 MB --- a match no sync required")
 
         path = '{local_dir}/junk0001'.format(**locals())
         if os.path.exists(path):
             os.unlink(path)
 
         self.user0.assert_icommand("irsync -v -r -K -l i:{base_name} {local_dir}".format(**locals()), "STDOUT_SINGLELINE", "junk0001   41943040   N")
-        self.user0.assert_icommand("irsync -v -r -K i:{base_name} {local_dir}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       39.999 MB ")
-        self.user0.assert_icommand("irsync -v -r -K -l i:{base_name} {local_dir}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       39.999 MB --- a match no sync required")
+        self.user0.assert_icommand("irsync -v -r -K i:{base_name} {local_dir}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       40.000 MB ")
+        self.user0.assert_icommand("irsync -v -r -K -l i:{base_name} {local_dir}".format(**locals()), "STDOUT_SINGLELINE", "junk0001                       40.000 MB --- a match no sync required")
 
         self.user0.environment_file_contents = user0_env_backup
 
@@ -288,3 +288,27 @@ class Test_iRsync(ResourceBase, unittest.TestCase):
             self.assertTrue(local_files == rods_files,
                             msg="Files missing:\n" + str(local_files - rods_files) + "\n\n" +
                             "Extra files:\n" + str(rods_files - local_files))
+
+    def test_irsync_r_symlink(self):
+
+        # make local dir
+
+        base_name = "test_irsync_r_symlink"
+        local_dir = os.path.join(self.testing_tmp_dir, base_name)
+        lib.make_dir_p(local_dir)
+
+        # make file
+        file_name = os.path.join(local_dir, 'the_file')
+        lib.make_file(file_name, 10)
+
+        # make symlink with relative path
+        link_path_1 = os.path.join(local_dir, 'link1')
+        lib.execute_command(['ln', '-s', 'the_file', link_path_1])
+
+        # make symlink with fully qualified path
+        link_path_2 = os.path.join(local_dir, 'link2')
+        lib.execute_command(['ln', '-s', file_name, link_path_2])
+
+        # sync dir to coll
+        self.user0.assert_icommand("irsync -r {local_dir} i:{base_name}".format(**locals()), "EMPTY")
+

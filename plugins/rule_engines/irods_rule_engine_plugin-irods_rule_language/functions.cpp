@@ -147,7 +147,7 @@ Node *wrapToActions( Node* node, Region* r ) {
     return node;
 }
 Res *smsi_ifExec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFlag, Env* env, rError_t* errmsg, Region* r ) {
-    Res *res = evaluateExpression3( ( Node * )params[0], 0, 1, rei, reiSaveFlag, env, errmsg, r );
+    Res *res = evaluateExpression3( ( Node * )params[0], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, r );
     if ( getNodeType( res ) == N_ERROR ) {
         return res;
     }
@@ -160,7 +160,7 @@ Res *smsi_ifExec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFla
 }
 
 Res *smsi_if2Exec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFlag, Env* env, rError_t* errmsg, Region* r ) {
-    Res *res = evaluateExpression3( ( Node * )params[0], 0, 1, rei, reiSaveFlag, env, errmsg, r );
+    Res *res = evaluateExpression3( ( Node * )params[0], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, r );
     if ( getNodeType( res ) == N_ERROR ) {
         return res;
     }
@@ -182,7 +182,7 @@ Res *smsi_do( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFlag, E
 
 }
 Res *smsi_letExec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFlag, Env* env, rError_t* errmsg, Region* r ) {
-    Res *res = evaluateExpression3( params[1], 0, 1, rei, reiSaveFlag, env, errmsg, r );
+    Res *res = evaluateExpression3( params[1], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, r );
     if ( getNodeType( res ) == N_ERROR ) {
         return res;
     }
@@ -198,7 +198,7 @@ Res *smsi_letExec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFl
     return res;
 }
 Res *smsi_matchExec( Node** params, int n, Node* node, ruleExecInfo_t* rei, int reiSaveFlag, Env* env, rError_t* errmsg, Region* r ) {
-    Res *res = evaluateExpression3( params[0], 0, 1, rei, reiSaveFlag, env, errmsg, r );
+    Res *res = evaluateExpression3( params[0], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, r );
     if ( getNodeType( res ) == N_ERROR ) {
         return res;
     }
@@ -226,7 +226,7 @@ Res *smsi_whileExec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSave
     GC_BEGIN
     while ( 1 ) {
 
-        cond = evaluateExpression3( ( Node * )params[0], 0, 1, rei, reiSaveFlag, env, errmsg, GC_REGION );
+        cond = evaluateExpression3( ( Node * )params[0], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, GC_REGION );
         if ( getNodeType( cond ) == N_ERROR ) {
             res = cond;
             break;
@@ -260,7 +260,7 @@ Res *smsi_forExec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFl
 
     Res *init, *cond, *res = NULL, *step;
     Region* rnew = make_region( 0, NULL );
-    init = evaluateExpression3( ( Node * )params[0], 0, 1, rei, reiSaveFlag, env, errmsg, rnew );
+    init = evaluateExpression3( ( Node * )params[0], 0, 1, rei, reiSaveFlag | DISCARD_EXPRESSION_RESULT, env, errmsg, rnew );
     if ( getNodeType( init ) == N_ERROR ) {
         res = init;
         cpEnv( env, r );
@@ -271,7 +271,7 @@ Res *smsi_forExec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFl
     GC_BEGIN
     while ( 1 ) {
 
-        cond = evaluateExpression3( ( Node * )params[1], 0, 1, rei, reiSaveFlag, env, errmsg, GC_REGION );
+        cond = evaluateExpression3( ( Node * )params[1], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, GC_REGION );
         if ( getNodeType( cond ) == N_ERROR ) {
             res = cond;
             break;
@@ -292,7 +292,7 @@ Res *smsi_forExec( Node** params, int, Node*, ruleExecInfo_t* rei, int reiSaveFl
         else if ( TYPE( res ) == T_SUCCESS ) {
             break;
         }
-        step = evaluateExpression3( ( Node * )params[2], 0, 1, rei, reiSaveFlag, env, errmsg, GC_REGION );
+        step = evaluateExpression3( ( Node * )params[2], 0, 1, rei, reiSaveFlag & DISCARD_EXPRESSION_RESULT, env, errmsg, GC_REGION );
         if ( getNodeType( step ) == N_ERROR ) {
             res = step;
             break;
@@ -434,6 +434,7 @@ Res *reIterable_genQuery_next( ReIterableData *itrData, Region* r ) {
 void reIterable_genQuery_finalize( ReIterableData *itrData, Region* r ) {
     ReIterable_genQuery_data *data = ( ReIterable_genQuery_data * ) itrData->itrSpecData;
     int status = msiCloseGenQuery( &( data->genQInpParam ), &( data->genQOutParam ), itrData->rei );
+    freeGenQueryInp((genQueryInp_t **) &( data->genQInpParam.inOutStruct ));
     clearMsParam( &( data->genQInpParam ), 0 );
     clearMsParam( &( data->genQOutParam ), 0 );
     free( data );
@@ -764,6 +765,7 @@ Res *smsi_query( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiS
     genQueryInp->maxRows = MAX_SQL_ROWS;
 
     msParam_t genQInpParam;
+    memset( &genQInpParam, 0, sizeof( msParam_t ) );
     genQInpParam.inOutStruct = ( void* )genQueryInp;
     genQInpParam.type = strdup( GenQueryInp_MS_T );
 
@@ -789,6 +791,8 @@ Res *smsi_query( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiS
                 snprintf( errmsgBuf, ERR_MSG_LEN, "Unable to get valid ICAT column index for %s.", subQueNode->subtrees[0]->text );
                 generateAndAddErrMsg( errmsgBuf, subQueNode->subtrees[0], RE_DYNAMIC_TYPE_ERROR, errmsg );
                 deleteHashTable( queCondHashTable, nop );
+                freeGenQueryInp( &genQueryInp );
+                clearMsParam( &genQInpParam, 0 );
                 return newErrorRes( r, RE_DYNAMIC_TYPE_ERROR );
             }
 
@@ -803,6 +807,8 @@ Res *smsi_query( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiS
                 deleteHashTable( queCondHashTable, nop );
                 snprintf( errmsgBuf, ERR_MSG_LEN, "Unsupported gen query format: multiple query conditions on one attribute %s.", attr );
                 generateAndAddErrMsg( errmsgBuf, subQueNode, RE_DYNAMIC_TYPE_ERROR, errmsg );
+                freeGenQueryInp( &genQueryInp );
+                clearMsParam( &genQInpParam, 0 );
                 return newErrorRes( r, RE_DYNAMIC_TYPE_ERROR );
             }
             insertIntoHashTable( queCondHashTable, attr, attr );
@@ -815,6 +821,8 @@ Res *smsi_query( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiS
                 snprintf( errmsgBuf, ERR_MSG_LEN, "Unable to get valid ICAT column index for %s.", subQueNode->subtrees[0]->text );
                 generateAndAddErrMsg( errmsgBuf, subQueNode->subtrees[0], RE_DYNAMIC_TYPE_ERROR, errmsg );
                 deleteHashTable( queCondHashTable, nop );
+                freeGenQueryInp( &genQueryInp );
+                clearMsParam( &genQInpParam, 0 );
                 return newErrorRes( r, RE_DYNAMIC_TYPE_ERROR );
             }
 
@@ -826,15 +834,19 @@ Res *smsi_query( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiS
                 Node* node = subQueNode->subtrees[k];
 
                 /* Make the condition */
-                res0 = evaluateExpression3( node->subtrees[0], 0, 0, rei, reiSaveFlag, env, errmsg, r );
+                res0 = evaluateExpression3( node->subtrees[0], 0, 0, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, r );
                 if ( getNodeType( res0 ) == N_ERROR ) {
                     deleteHashTable( queCondHashTable, nop );
+                    freeGenQueryInp( &genQueryInp );
+                    clearMsParam( &genQInpParam, 0 );
                     return res0;
                 }
                 nodeType0 = ( NodeType ) TYPE( res0 );
                 if ( nodeType0 != T_DOUBLE && nodeType0 != T_INT && nodeType0 != T_STRING ) {
                     generateAndAddErrMsg( "dynamic type error", node->subtrees[0], RE_DYNAMIC_TYPE_ERROR, errmsg );
                     deleteHashTable( queCondHashTable, nop );
+                    freeGenQueryInp( &genQueryInp );
+                    clearMsParam( &genQInpParam, 0 );
                     return newErrorRes( r, RE_DYNAMIC_TYPE_ERROR );
                 }
                 value0 = convertResToString( res0 );
@@ -848,15 +860,19 @@ Res *smsi_query( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiS
                 free( value0 );
 
                 if ( strcmp( node->text, "between" ) == 0 ) {
-                    res1 = evaluateExpression3( node->subtrees[1], 0, 0, rei, reiSaveFlag, env, errmsg, r );
+                    res1 = evaluateExpression3( node->subtrees[1], 0, 0, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, r );
                     if ( getNodeType( res1 ) == N_ERROR ) {
                         deleteHashTable( queCondHashTable, nop );
+                        freeGenQueryInp( &genQueryInp );
+                        clearMsParam( &genQInpParam, 0 );
                         return res1;
                     }
                     nodeType1 = ( NodeType ) TYPE( res1 );
                     if ( ( ( nodeType0 == T_DOUBLE || nodeType0 == T_INT ) && nodeType1 != T_DOUBLE && nodeType1 != T_INT ) || ( nodeType0 == T_STRING && nodeType1 != T_STRING ) ) {
                         generateAndAddErrMsg( "dynamic type error", node->subtrees[1], RE_DYNAMIC_TYPE_ERROR, errmsg );
                         deleteHashTable( queCondHashTable, nop );
+                        freeGenQueryInp( &genQueryInp );
+                        clearMsParam( &genQInpParam, 0 );
                         return newErrorRes( r, RE_DYNAMIC_TYPE_ERROR );
                     }
                     value1 = convertResToString( res1 );
@@ -879,6 +895,8 @@ Res *smsi_query( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiS
         default:
             generateAndAddErrMsg( "unsupported node type", subQueNode, RE_DYNAMIC_TYPE_ERROR, errmsg );
             deleteHashTable( queCondHashTable, nop );
+            freeGenQueryInp( &genQueryInp );
+            clearMsParam( &genQInpParam, 0 );
             return newErrorRes( r, RE_DYNAMIC_TYPE_ERROR );
         }
     }
@@ -891,13 +909,21 @@ Res *smsi_query( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiS
     int status = msiExecGenQuery( &genQInpParam, &genQOutParam, rei );
     if ( status < 0 ) {
         region_free( rNew );
+        freeGenQueryInp(&genQueryInp);
+        clearMsParam(&genQInpParam, 0);
+        if (genQOutParam.inOutStruct) {
+            freeGenQueryOut((genQueryOut_t **) &genQOutParam.inOutStruct);
+        }
+        clearMsParam(&genQOutParam, 0);
         generateAndAddErrMsg( "msiExecGenQuery error", node, status, errmsg );
         return newErrorRes( r, status );
     }
     Res *res = newRes( r );
     convertMsParamToResAndFreeNonIRODSType( &genQInpParam, res, r );
+    clearMsParam(&genQInpParam, 0);
     Res *res2 = newRes( r );
     convertMsParamToResAndFreeNonIRODSType( &genQOutParam, res2, r );
+    clearMsParam(&genQOutParam, 0);
     region_free( rNew );
 
     Res **comps = ( Res ** ) region_alloc( r, sizeof( Res * ) * 2 );
@@ -932,7 +958,7 @@ Res *smsi_assign( Node** subtrees, int, Node*, ruleExecInfo_t* rei, int reiSaveF
 
     /* An smsi shares the same env as the enclosing rule. */
     /* Therefore, our modification to the env is reflected to the enclosing rule automatically. */
-    Res *val = evaluateExpression3( ( Node * )subtrees[1], 0, 1, rei, reiSaveFlag,  env, errmsg, r );
+    Res *val = evaluateExpression3( ( Node * )subtrees[1], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT,  env, errmsg, r );
     if ( getNodeType( val ) == N_ERROR ) {
         return val;
     }
@@ -965,7 +991,7 @@ Res *smsi_getValByKey( Node** params, int, Node* node, ruleExecInfo_t* rei, int 
         key = N_APP_FUNC( params[1] )->text;
     }
     else {
-        res = evaluateExpression3( params[1], 0, 1, rei, reiSaveFlag, env, errmsg, r );
+        res = evaluateExpression3( params[1], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT, env, errmsg, r );
         if ( TYPE( res ) != T_STRING ) {
             snprintf( errbuf, ERR_MSG_LEN, "malformatted key" );
             generateAndAddErrMsg( errbuf, params[1], UNMATCHED_KEY_OR_INDEX, errmsg );
@@ -1163,13 +1189,13 @@ Res *smsi_tuple( Node** params, int n, Node*, ruleExecInfo_t*, int, Env*, rError
     }
     return res;
 }
-Res *smsi_elem( Node** params, int, Node*, ruleExecInfo_t*, int, Env*, rError_t* errmsg, Region* r ) {
+Res *smsi_elem( Node** params, int, Node* node, ruleExecInfo_t*, int, Env*, rError_t* errmsg, Region* r ) {
     char errbuf[ERR_MSG_LEN];
     int index = RES_INT_VAL( params[1] );
     if ( TYPE( params[0] ) == T_CONS ) {
         if ( index < 0 || index >= params[0]->degree ) {
             snprintf( errbuf, ERR_MSG_LEN, "error: index out of range %d.", index );
-            addRErrorMsg( errmsg, RE_RUNTIME_ERROR, errbuf );
+            generateAndAddErrMsg( errbuf, node, RE_RUNTIME_ERROR, errmsg );
             return newErrorRes( r, RE_RUNTIME_ERROR );
         }
         Res *res = params[0]->subtrees[index];
@@ -1179,7 +1205,7 @@ Res *smsi_elem( Node** params, int, Node*, ruleExecInfo_t*, int, Env*, rError_t*
         if ( index < 0 || index >= getCollectionSize( params[0]->exprType->text,
                 RES_UNINTER_STRUCT( params[0] ) ) ) {
             snprintf( errbuf, ERR_MSG_LEN, "error: index out of range %d. %s", index, ( ( Res * )params[0] )->exprType->text );
-            addRErrorMsg( errmsg, RE_RUNTIME_ERROR, errbuf );
+            generateAndAddErrMsg( errbuf, node, RE_RUNTIME_ERROR, errmsg );
             return newErrorRes( r, RE_RUNTIME_ERROR );
         }
         Res *res2 = getValueFromCollection( params[0]->exprType->text,
@@ -1242,9 +1268,10 @@ Res *smsi_time( Node**, int, Node*, ruleExecInfo_t*, int, Env*, rError_t*, Regio
 }
 Res *smsi_timestr( Node** params, int n, Node*, ruleExecInfo_t*, int, Env*, rError_t* errmsg, Region* r ) {
     char errbuf[ERR_MSG_LEN];
-    Res *res = newRes( r );
+    Res *res;
     Res* dtime = params[0];
     char* format;
+    newRes( r );
     if ( TYPE( params[0] ) != T_DATETIME ||
             ( n == 2 && TYPE( params[1] ) != T_STRING ) ) {
         res = newErrorRes( r, RE_UNSUPPORTED_OP_OR_TYPE );
@@ -1737,7 +1764,6 @@ Res *smsi_like_regex( Node** paramsr, int, Node*, ruleExecInfo_t*, int, Env*, rE
     Res **params = paramsr;
     char *pattern;
     char *bufstr;
-    pattern = params[1]->text;
     Res *res;
 
     bufstr = strdup( params[0]->text );
@@ -1915,91 +1941,6 @@ Res *smsi_remoteExec( Node** paramsr, int, Node* node, ruleExecInfo_t* rei, int,
     }
 #endif
 }
-int writeStringNew( char *writeId, char *writeStr, Env* env, Region* r, ruleExecInfo_t* rei ) {
-    execCmdOut_t *myExecCmdOut;
-    Res *execOutRes;
-#ifndef DEBUG
-    dataObjInp_t dataObjInp;
-    openedDataObjInp_t openedDataObjInp;
-    bytesBuf_t tmpBBuf;
-    int fd, i;
-#endif
-
-    if ( writeId != NULL && strcmp( writeId, "serverLog" ) == 0 ) {
-        rodsLog( LOG_NOTICE, "writeString: inString = %s", writeStr );
-        return 0;
-    }
-#ifndef DEBUG
-    if ( writeId != NULL && writeId[0] == '/' ) {
-        /* writing to an existing iRODS file */
-
-        if ( rei == NULL || rei->rsComm == NULL ) {
-            rodsLog( LOG_ERROR, "_writeString: input rei or rsComm is NULL" );
-            return SYS_INTERNAL_NULL_INPUT_ERR;
-        }
-
-        bzero( &dataObjInp, sizeof( dataObjInp ) );
-        dataObjInp.openFlags = O_RDWR;
-        snprintf( dataObjInp.objPath, MAX_NAME_LEN, "%s", writeId );
-        fd = rsDataObjOpen( rei->rsComm, &dataObjInp );
-        if ( fd < 0 ) {
-            rodsLog( LOG_ERROR, "_writeString: rsDataObjOpen failed. status = %d", fd );
-            return fd;
-        }
-
-        bzero( &openedDataObjInp, sizeof( openedDataObjInp ) );
-        openedDataObjInp.l1descInx = fd;
-        openedDataObjInp.offset = 0;
-        openedDataObjInp.whence = SEEK_END;
-        fileLseekOut_t *dataObjLseekOut = NULL;
-        i = rsDataObjLseek( rei->rsComm, &openedDataObjInp, &dataObjLseekOut );
-        free( dataObjLseekOut );
-        if ( i < 0 ) {
-            rodsLog( LOG_ERROR, "_writeString: rsDataObjLseek failed. status = %d", i );
-            return i;
-        }
-
-        bzero( &openedDataObjInp, sizeof( openedDataObjInp ) );
-        openedDataObjInp.l1descInx = fd;
-        tmpBBuf.len = openedDataObjInp.len = strlen( writeStr );
-        tmpBBuf.buf =  writeStr;
-        i = rsDataObjWrite( rei->rsComm, &openedDataObjInp, &tmpBBuf );
-        if ( i < 0 ) {
-            rodsLog( LOG_ERROR, "_writeString: rsDataObjWrite failed. status = %d", i );
-            return i;
-        }
-
-        bzero( &openedDataObjInp, sizeof( openedDataObjInp ) );
-        openedDataObjInp.l1descInx = fd;
-        i = rsDataObjClose( rei->rsComm, &openedDataObjInp );
-        return i;
-    }
-
-#endif
-
-
-    if ( ( execOutRes = ( Res * )lookupFromEnv( env, "ruleExecOut" ) ) != NULL ) {
-        myExecCmdOut = ( execCmdOut_t * )RES_UNINTER_STRUCT( execOutRes );
-    }
-    else {
-        Env *global = env;
-        while ( global->previous != NULL ) {
-            global = global->previous;
-        }
-        myExecCmdOut = ( execCmdOut_t * )malloc( sizeof( execCmdOut_t ) );
-        memset( myExecCmdOut, 0, sizeof( execCmdOut_t ) );
-        execOutRes = newUninterpretedRes( r, ExecCmdOut_MS_T, myExecCmdOut, NULL );
-        insertIntoHashTable( global->current, "ruleExecOut", execOutRes );
-    }
-
-    if ( writeId && !strcmp( writeId, "stdout" ) ) {
-        appendToByteBuf( &( myExecCmdOut->stdoutBuf ), ( char * ) writeStr );
-    }
-    else if ( writeId && !strcmp( writeId, "stderr" ) ) {
-        appendToByteBuf( &( myExecCmdOut->stderrBuf ), ( char * ) writeStr );
-    }
-    return 0;
-}
 
 Res *smsi_writeLine( Node** paramsr, int, Node*, ruleExecInfo_t* rei, int, Env* env, rError_t*, Region* r ) {
     char *inString = convertResToString( paramsr[1] );
@@ -2011,7 +1952,7 @@ Res *smsi_writeLine( Node** paramsr, int, Node*, ruleExecInfo_t* rei, int, Env* 
         free( inString );
         return newIntRes( r, 0 );
     }
-    int i = writeStringNew( whereId, inString, env, r, rei );
+    int i = _writeString( whereId, inString, rei );
 #ifdef DEBUG
     printf( "%s\n", inString );
 #endif
@@ -2020,7 +1961,7 @@ Res *smsi_writeLine( Node** paramsr, int, Node*, ruleExecInfo_t* rei, int, Env* 
     if ( i < 0 ) {
         return newErrorRes( r, i );
     }
-    i = writeStringNew( whereId, "\n", env, r, rei );
+    i = _writeString( whereId, "\n", rei );
 
     if ( i < 0 ) {
         return newErrorRes( r, i );
@@ -2035,7 +1976,7 @@ Res *smsi_writeString( Node** paramsr, int, Node*, ruleExecInfo_t* rei, int, Env
     Res *where = ( Res * )paramsr[0];
     char *whereId = where->text;
 
-    int i = writeStringNew( whereId, inString, env, r, rei );
+    int i = _writeString( whereId, inString, rei );
 
     free( inString );
     if ( i < 0 ) {
@@ -2213,13 +2154,18 @@ Res *smsi_setReLogging( Node** paramsr, int, Node* node, ruleExecInfo_t* rei, in
 
 
 Res *smsi_getstdout( Node** paramsr, int, Node* node, ruleExecInfo_t* rei, int reiSaveFlag, Env* env, rError_t* errmsg, Region* r ) {
-    Res *res = ( Res * )lookupFromEnv( env, "ruleExecOut" );
-    if ( res == NULL ) {
+    msParam_t * mP = NULL;
+    msParamArray_t * inMsParamArray = rei->msParamArray;
+    execCmdOut_t *out;
+    if ( ( ( mP = getMsParamByLabel( inMsParamArray, "ruleExecOut" ) ) != NULL ) &&
+            ( mP->inOutStruct != NULL ) &&
+            strcmp(mP->type, ExecCmdOut_MS_T) == 0  ) {
+            out = ( execCmdOut_t* )mP->inOutStruct;
+    } else {
         generateAndAddErrMsg( "ruleExecOut not set", node, RE_RUNTIME_ERROR, errmsg );
         return newErrorRes( r, RE_RUNTIME_ERROR );
     }
 
-    execCmdOut_t *out = ( execCmdOut_t * )RES_UNINTER_STRUCT( res );
     int start = strlen( ( char * )out->stdoutBuf.buf );
     Res *ret = smsi_do( paramsr, 1, node, rei, reiSaveFlag, env, errmsg, r );
     /* int fin = strlen((char *)out->stdoutBuf.buf); */
@@ -2228,13 +2174,18 @@ Res *smsi_getstdout( Node** paramsr, int, Node* node, ruleExecInfo_t* rei, int r
 }
 
 Res *smsi_getstderr( Node** paramsr, int, Node* node, ruleExecInfo_t* rei, int reiSaveFlag, Env* env, rError_t* errmsg, Region* r ) {
-    Res *res = ( Res * )lookupFromEnv( env, "ruleExecOut" );
-    if ( res == NULL ) {
+    msParam_t * mP = NULL;
+    msParamArray_t * inMsParamArray = rei->msParamArray;
+    execCmdOut_t *out;
+    if ( ( ( mP = getMsParamByLabel( inMsParamArray, "ruleExecOut" ) ) != NULL ) &&
+            ( mP->inOutStruct != NULL ) &&
+            strcmp(mP->type, ExecCmdOut_MS_T) == 0  ) {
+            out = ( execCmdOut_t* )mP->inOutStruct;
+    } else {
         generateAndAddErrMsg( "ruleExecOut not set", node, RE_RUNTIME_ERROR, errmsg );
         return newErrorRes( r, RE_RUNTIME_ERROR );
     }
 
-    execCmdOut_t *out = ( execCmdOut_t * )RES_UNINTER_STRUCT( res );
     int start = strlen( ( char * )out->stderrBuf.buf );
     Res *ret = smsi_do( paramsr, 1, node, rei, reiSaveFlag, env, errmsg, r );
     paramsr[1] = newStringRes( r, ( ( char * )out->stderrBuf.buf + start ) );
@@ -2242,7 +2193,7 @@ Res *smsi_getstderr( Node** paramsr, int, Node* node, ruleExecInfo_t* rei, int r
 }
 
 Res *smsi_assignStr( Node** subtrees, int, Node* node, ruleExecInfo_t* rei, int reiSaveFlag, Env* env, rError_t* errmsg, Region* r ) {
-    Res *val = evaluateExpression3( ( Node * )subtrees[1], 0, 1, rei, reiSaveFlag,  env, errmsg, r );
+    Res *val = evaluateExpression3( ( Node * )subtrees[1], 0, 1, rei, reiSaveFlag & ~DISCARD_EXPRESSION_RESULT,  env, errmsg, r );
     if ( getNodeType( val ) == N_ERROR ) {
         return val;
     }

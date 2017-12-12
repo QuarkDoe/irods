@@ -1,4 +1,4 @@
 tags
 .dir-locals.el
-.build
-*.kdev4
+*.pyc
+packaging/unattended_setup.json

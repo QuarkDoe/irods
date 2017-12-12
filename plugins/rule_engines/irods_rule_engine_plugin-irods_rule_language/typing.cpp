@@ -241,6 +241,7 @@ Satisfiability simplifyR( ExprType *a, ExprType *b, int flex, Node *node, Hashta
         if ( bn == b ) {
             return TAUTOLOGY;
         }
+//        insertIntoHashTable( typingEnv, b->text, bn );
         return createSimpleConstraint( a, bn, flex, node, typingEnv, equivalence, simpleTypingConstraints, r );
     }
 }
@@ -275,6 +276,7 @@ Satisfiability simplifyL( ExprType *a, ExprType *b, int flex, Node *node, Hashta
         if ( an == a ) {
             return TAUTOLOGY;
         }
+//        insertIntoHashTable( typingEnv, a->text, an );
         return createSimpleConstraint( an, b, flex, node, typingEnv, equivalence, simpleTypingConstraints, r );
     }
 
@@ -1007,6 +1009,29 @@ int typeFuncParam( Node *param, Node *paramType, Node *formalParamType, Hashtabl
     return 0;
 }
 
+ExprType* typeTypeAscription( Node *expr, int dynamictyping, Env *funcDesc, Hashtable *varTypes, List *typingConstraints, rError_t *errmsg, Node **errnode, Region *r ) {
+    char errbuf[ERR_MSG_LEN];
+    char errmsgbuf[ERR_MSG_LEN];
+    char typebuf[ERR_MSG_LEN];
+    char typebuf2[ERR_MSG_LEN];
+        Node *param = expr->subtrees[0];
+        ExprType *ascType = expr->subtrees[1];
+        ExprType *exprType = typeExpression3( param, dynamictyping, funcDesc, varTypes, typingConstraints, errmsg, errnode, r );
+        if ( getNodeType( exprType ) == T_ERROR ) {
+            return exprType;
+        }
+
+        ExprType *t = unifyWith( exprType, ascType, varTypes, r );
+        if ( t == NULL ) {
+                *errnode = expr;
+                snprintf( errmsgbuf, ERR_MSG_LEN, "type error: cannot unify source %s and target %s", typeToString(exprType, varTypes, typebuf, ERR_MSG_LEN), typeToString(ascType, varTypes, typebuf2, ERR_MSG_LEN));
+                generateErrMsg( errmsgbuf, NODE_EXPR_POS( ( *errnode ) ), ( *errnode )->base, errbuf );
+                addRErrorMsg( errmsg, RE_TYPE_ERROR, errbuf );
+                return newSimpType( T_ERROR, r );
+        }
+        return t;
+}
+
 ExprType* typeExpression3( Node *expr, int dynamictyping, Env *funcDesc, Hashtable *varTypes, List *typingConstraints, rError_t *errmsg, Node **errnode, Region *r ) {
     ExprType *res = NULL;
     ExprType **components;
@@ -1129,6 +1154,8 @@ ExprType* typeExpression3( Node *expr, int dynamictyping, Env *funcDesc, Hashtab
         /* todo type */
         return expr->exprType = newSimpType( T_DYNAMIC, r );
 
+    case N_EXTERN_DEF:
+        return expr->exprType = typeTypeAscription( expr, dynamictyping, funcDesc, varTypes, typingConstraints, errmsg, errnode, r );
     default:
         break;
     }

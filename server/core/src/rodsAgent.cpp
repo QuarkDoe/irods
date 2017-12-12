@@ -90,7 +90,7 @@ int receiveDataFromServer( int conn_tmp_socket ) {
     bool data_complete = false;
 
     char ack_buffer[256];
-    unsigned int len = snprintf( ack_buffer, 256, "OK" );
+    snprintf( ack_buffer, 256, "OK" );
 
     while (!data_complete) {
         memset( in_buf, 0, 1024 );
@@ -138,7 +138,7 @@ int receiveDataFromServer( int conn_tmp_socket ) {
             std::string lhs = tmpStr.substr(0, i);
             std::string rhs = tmpStr.substr(i+1, tmpStr.size());
 
-            status = setenv( lhs.c_str(), rhs.c_str(), 1 );
+            setenv( lhs.c_str(), rhs.c_str(), 1 );
 
             tokenized_strings = strtok(NULL, ";");
         }
@@ -157,116 +157,20 @@ int receiveDataFromServer( int conn_tmp_socket ) {
     char socket_buf[16];
     snprintf(socket_buf, 16, "%d", newSocket);
 
-    len = snprintf( ack_buffer, 256, "%d", getpid() );
+    unsigned int len = snprintf( ack_buffer, 256, "%d", getpid() );
     num_bytes = send ( conn_tmp_socket, ack_buffer, len, 0 );
     if ( num_bytes < 0 ) {
         rodsLog( LOG_ERROR, "Error sending agent pid to rodsServer, errno = [%d]", errno, strerror( errno ) );
         return SYS_SOCK_READ_ERR;
     }
 
-    status = setenv( SP_NEW_SOCK, socket_buf, 1 );
-
+    setenv( SP_NEW_SOCK, socket_buf, 1 );
     status = close( conn_tmp_socket );
     if ( status < 0 ) {
         rodsLog( LOG_ERROR, "close(conn_tmp_socket) failed with errno = [%d]: %s", errno, strerror( errno ) );
     }
 
     return status;
-}
-
-int initRsCommFromServerSocket( rsComm_t *rsComm, int socket ) {
-    char in_buf[1024];
-    bool data_complete = false;
-
-    while (!data_complete) {
-        memset( in_buf, 0, 1024 );
-        recv( socket, &in_buf, 1024, 0 );
-
-        if (strlen(in_buf) == 0) {
-            return -1;
-        }
-
-        char* tokenized_strings = strtok(in_buf, ";");
-
-        while (tokenized_strings != NULL) {
-            std::string tmpStr = tokenized_strings;
-
-            if ( tmpStr == "end_of_vars" ) {
-                data_complete = true;
-                break;
-            }
-
-            unsigned long i = 0;
-            for ( auto& a : tmpStr) {
-                if (a == '=') {
-                    break;
-                }
-                ++i;
-            }
-
-            if (i == tmpStr.size()) {
-                // No equal sign was found
-                continue;
-            }
-
-            std::string lhs = tmpStr.substr(0, i);
-            std::string rhs = tmpStr.substr(i+1, tmpStr.size());
-
-            if ( lhs == SP_CONNECT_CNT ) {
-                rsComm->connectCnt = std::stoi( rhs );
-            } else if ( lhs == SP_PROTOCOL ) {
-                rsComm->irodsProt = (irodsProt_t) std::stoi( rhs );
-            } else if ( lhs == SP_RECONN_FLAG ) {
-                rsComm->reconnFlag = std::stoi( rhs );
-            } else if ( lhs == SP_PROXY_USER ) {
-                rstrcpy ( rsComm->proxyUser.userName, rhs.c_str(), NAME_LEN );
-
-                if ( rhs == PUBLIC_USER_NAME ) {
-                    rsComm->proxyUser.authInfo.authFlag = PUBLIC_USER_AUTH;
-                }
-            } else if ( lhs == SP_PROXY_RODS_ZONE ) {
-                rstrcpy( rsComm->proxyUser.rodsZone, rhs.c_str(), NAME_LEN );
-            } else if ( lhs == SP_CLIENT_USER ) {
-                rstrcpy( rsComm->clientUser.userName, rhs.c_str(), NAME_LEN );
-
-                if ( rhs == PUBLIC_USER_NAME ) {
-                    rsComm->clientUser.authInfo.authFlag = PUBLIC_USER_AUTH;
-                }
-            } else if ( lhs == SP_CLIENT_RODS_ZONE ) {
-                rstrcpy( rsComm->clientUser.rodsZone, rhs.c_str(), NAME_LEN );
-            } else if ( lhs == SP_REL_VERSION ) {
-                rstrcpy( rsComm->cliVersion.relVersion, rhs.c_str(), NAME_LEN );
-            } else if ( lhs == SP_API_VERSION ) {
-                rstrcpy( rsComm->cliVersion.apiVersion, rhs.c_str(), NAME_LEN );
-            } else if ( lhs == SP_OPTION ) {
-                rstrcpy( rsComm->option, rhs.c_str(), LONG_NAME_LEN );
-            } else if ( lhs == SP_RE_CACHE_SALT ) {
-                // SP_RE_CACHE_SALT gets saved in an environment variable
-                setenv(lhs.c_str(), rhs.c_str(), 1);
-            }
-
-            tokenized_strings = strtok(NULL, ";");
-        }
-    }
-
-    int newSocket;
-    receiveSocketFromSocket( socket, &newSocket );
-    rsComm->sock = newSocket;
-
-    if ( rsComm->sock != 0 ) {
-
-        /* remove error messages from xmsLog */
-        setLocalAddr( rsComm->sock, &rsComm->localAddr );
-        setRemoteAddr( rsComm->sock, &rsComm->remoteAddr );
-    }
-
-    char* tmpStr = inet_ntoa( rsComm->remoteAddr.sin_addr );
-    if ( tmpStr == NULL || *tmpStr == '\0' ) {
-        tmpStr = "UNKNOWN";
-    }
-    rstrcpy( rsComm->clientAddr, tmpStr, NAME_LEN );
-
-    return 0;
 }
 
 void
@@ -327,7 +231,26 @@ runIrodsAgent( sockaddr_un agent_addr ) {
         return SYS_SOCK_ACCEPT_ERR;
     }
 
+    // [#3563] reproduce serverize log behavior
+    char* logFile = NULL;
+    getLogfileName( &logFile, NULL, RODS_LOGFILE );
+    LogFd = open( logFile, O_CREAT | O_WRONLY | O_APPEND, 0644 );
+    if ( LogFd < 0 ) {
+        rodsLog( LOG_NOTICE, "runIrodsAgent: Unable to open %s. errno = %d",
+                 logFile, errno );
+        free( logFile );
+        return -1;
+    }
+    ( void ) dup2( LogFd, 0 );
+    ( void ) dup2( LogFd, 1 );
+    ( void ) dup2( LogFd, 2 );
+    close( LogFd );
+    LogFd = 2;
+
     while ( true ) {
+        // [#3563] check for log file roll over
+        chkLogfileName( NULL, RODS_LOGFILE );
+
         // Reap any zombie processes from completed agents
         int reaped_pid, child_status;
         while ( ( reaped_pid = waitpid( -1, &child_status, WNOHANG ) ) > 0 ) {
@@ -419,7 +342,7 @@ runIrodsAgent( sockaddr_un agent_addr ) {
                 // Child process - reload properties and receive data from server process
                 irods::environment_properties::instance().capture();
 
-                status = receiveDataFromServer( conn_tmp_socket );
+                receiveDataFromServer( conn_tmp_socket );
 
                 irods::server_properties::instance().capture();
 
@@ -481,6 +404,7 @@ runIrodsAgent( sockaddr_un agent_addr ) {
 
     irods::re_serialization::serialization_map_t m = irods::re_serialization::get_serialization_map();
     irods::re_plugin_globals.reset(new irods::global_re_plugin_mgr);
+    irods::re_plugin_globals->global_re_mgr.call_start_operations();
 
     status = getRodsEnv( &rsComm.myEnv );
 
@@ -607,6 +531,7 @@ runIrodsAgent( sockaddr_un agent_addr ) {
 
     new_net_obj->to_server( &rsComm );
     cleanup();
+    irods::re_plugin_globals->global_re_mgr.call_stop_operations();
     free( rsComm.thread_ctx );
     free( rsComm.auth_scheme );
 

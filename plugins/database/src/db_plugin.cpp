@@ -439,7 +439,6 @@ irods::error determine_user_has_modify_metadata_access(
  */
 void removeMetaMapAndAVU( char *dataObjNumber ) {
     char tSQL[MAX_SQL_SIZE];
-    int status;
     cllBindVars[0] = dataObjNumber;
     cllBindVarCount = 1;
     if ( logSQL != 0 ) {
@@ -447,8 +446,7 @@ void removeMetaMapAndAVU( char *dataObjNumber ) {
     }
     snprintf( tSQL, MAX_SQL_SIZE,
               "delete from R_OBJT_METAMAP where object_id=?" );
-    status =  cmlExecuteNoAnswerSql( tSQL, &icss );
-
+    cmlExecuteNoAnswerSql( tSQL, &icss );
     /* Note, the status will be CAT_SUCCESS_BUT_WITH_NO_INFO (not 0) if
        there were no rows deleted from R_OBJT_METAMAP, in which case there
        is no need to do the SQL below.
@@ -632,7 +630,7 @@ _rescHasData(
     const std::string& _resc_name,
     bool&              _has_data ) {
     irods::sql_logger logger( "_rescHasData", logSQL );
-    rodsLong_t obj_count;
+    rodsLong_t obj_count{};
 
     logger.log();
 
@@ -721,7 +719,7 @@ _rescHasParentOrChild( char* rescId ) {
 
 }
 
-bool _userInRUserAuth( char* userName, char* zoneName ) {
+bool _userInRUserAuth( const char* userName, const char* zoneName, const char* auth_name ) {
     int status;
     rodsLong_t iVal;
     irods::sql_logger logger( "_userInRUserAuth", logSQL );
@@ -731,8 +729,9 @@ bool _userInRUserAuth( char* userName, char* zoneName ) {
         std::vector<std::string> bindVars;
         bindVars.push_back( userName );
         bindVars.push_back( zoneName );
+        bindVars.push_back( auth_name );
         status = cmlGetIntegerValueFromSql(
-                    "select user_id from R_USER_AUTH where user_id=(select user_id from R_USER_MAIN where user_name=? and zone_name=?)",
+                    "select user_id from R_USER_AUTH where user_id=(select user_id from R_USER_MAIN where user_name=? and zone_name=?) and user_auth_name=?",
                     &iVal, bindVars, &icss );
     }
     if ( status != 0 ) {
@@ -791,8 +790,7 @@ static int _delColl( rsComm_t *rsComm, collInfo_t *collInfo ) {
         return CATALOG_NOT_CONNECTED;
     }
 
-    status = splitPathByKey( collInfo->collName,
-                             logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+    splitPathByKey( collInfo->collName, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
 
     if ( strlen( logicalParentDirName ) == 0 ) {
         snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
@@ -1225,8 +1223,7 @@ rodsLong_t checkAndGetObjectId(
     }
 
     if ( itype == 1 ) {
-        status = splitPathByKey( name,
-                                 logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+        splitPathByKey( name, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
         if ( strlen( logicalParentDirName ) == 0 ) {
             snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
             snprintf( logicalEndName, sizeof( logicalEndName ), "%s", name );
@@ -1567,7 +1564,7 @@ int setOverQuota( rsComm_t *rsComm ) {
     }
     status =  cmlExecuteNoAnswerSql(
 #if ORA_ICAT
-                  "update R_QUOTA_MAIN set quota_over = (select distinct R_QUOTA_USAGE.quota_usage - R_QUOTA_MAIN.quota_limit from R_QUOTA_USAGE, R_QUOTA_MAIN where R_QUOTA_MAIN.user_id = R_QUOTA_USAGE.user_id and R_QUOTA_MAIN.resc_id = R_QUOTA_USAGE.resc_id) where exists (select 1 from R_QUOTA_USAGE, R_QUOTA_MAIN where R_QUOTA_MAIN.user_id = R_QUOTA_USAGE.user_id and R_QUOTA_MAIN.resc_id = R_QUOTA_USAGE.resc_id)",
+                  "update R_QUOTA_MAIN set quota_over = (select distinct R_QUOTA_USAGE.quota_usage - R_QUOTA_MAIN.quota_limit from R_QUOTA_USAGE where R_QUOTA_MAIN.user_id = R_QUOTA_USAGE.user_id and R_QUOTA_MAIN.resc_id = R_QUOTA_USAGE.resc_id) where exists (select 1 from R_QUOTA_USAGE where R_QUOTA_MAIN.user_id = R_QUOTA_USAGE.user_id and R_QUOTA_MAIN.resc_id = R_QUOTA_USAGE.resc_id)",
 #elif MY_ICAT
                   "update R_QUOTA_MAIN, R_QUOTA_USAGE set R_QUOTA_MAIN.quota_over = R_QUOTA_USAGE.quota_usage - R_QUOTA_MAIN.quota_limit where R_QUOTA_MAIN.user_id = R_QUOTA_USAGE.user_id and R_QUOTA_MAIN.resc_id = R_QUOTA_USAGE.resc_id",
 #else
@@ -2332,8 +2329,7 @@ irods::error db_mod_data_obj_meta_op(
 
     if ( _data_obj_info->dataId <= 0 ) {
 
-        status = splitPathByKey( _data_obj_info->objPath,
-                                 logicalDirName, MAX_NAME_LEN, logicalFileName, MAX_NAME_LEN, '/' );
+        splitPathByKey( _data_obj_info->objPath, logicalDirName, MAX_NAME_LEN, logicalFileName, MAX_NAME_LEN, '/' );
 
         if ( logSQL != 0 ) {
             rodsLog( LOG_SQL, "chlModDataObjMeta SQL 1 " );
@@ -2549,7 +2545,6 @@ irods::error db_mod_data_obj_meta_op(
     }
     else {
         /* mark this one as NEWLY_CREATED_COPY and others as OLD_COPY */
-        j = upCols;
         updateCols.push_back( "data_is_dirty" );
         snprintf( newCopy, NAME_LEN, "%d", NEWLY_CREATED_COPY );
         updateVals.push_back( newCopy );
@@ -2692,9 +2687,7 @@ irods::error db_reg_data_obj_op(
     snprintf( dataIdNum, MAX_NAME_LEN, "%lld", seqNum );
     _data_obj_info->dataId = seqNum; /* store as output parameter */
 
-    status = splitPathByKey( _data_obj_info->objPath,
-                             logicalDirName, MAX_NAME_LEN, logicalFileName, MAX_NAME_LEN, '/' );
-
+    splitPathByKey( _data_obj_info->objPath, logicalDirName, MAX_NAME_LEN, logicalFileName, MAX_NAME_LEN, '/' );
 
     /* Check that collection exists and user has write permission.
        At the same time, also get the inherit flag */
@@ -2984,8 +2977,7 @@ irods::error db_reg_replica_op(
         return ERROR( CATALOG_NOT_CONNECTED, "catalog not connected" );
     }
 
-    status = splitPathByKey( _src_data_obj_info->objPath,
-                             logicalDirName, MAX_NAME_LEN, logicalFileName, MAX_NAME_LEN, '/' );
+    splitPathByKey( _src_data_obj_info->objPath, logicalDirName, MAX_NAME_LEN, logicalFileName, MAX_NAME_LEN, '/' );
 
     if ( adminMode ) {
         if ( _ctx.comm()->clientUser.authInfo.authFlag != LOCAL_PRIV_USER_AUTH ) {
@@ -3086,6 +3078,10 @@ irods::error db_reg_replica_op(
                  "chlRegReplica cmlExecuteNoAnswerSql(insert) failure %d",
                  status );
         _rollback( "chlRegReplica" );
+        const int free_status = cmlFreeStatement( statementNumber, &icss );
+        if (free_status != 0) {
+            rodsLog(LOG_ERROR, "db_reg_replica_op: cmlFreeStatement0 failure [%d]", free_status);
+        }
         return ERROR( status, "cmlExecuteNoAnswerSql(insert) failure" );
     }
 
@@ -3093,6 +3089,10 @@ irods::error db_reg_replica_op(
     ret = getLocalZone( _ctx.prop_map(), &icss, zone );
     if ( !ret.ok() ) {
         rodsLog( LOG_ERROR, "chlRegReplica - failed in getLocalZone with status [%d]", status );
+        const int free_status = cmlFreeStatement( statementNumber, &icss );
+        if (free_status != 0) {
+            rodsLog(LOG_ERROR, "db_reg_replica_op: cmlFreeStatement1 failure [%d]", free_status);
+        }
         return PASS( ret );
     }
 
@@ -3199,8 +3199,7 @@ irods::error db_unreg_replica_op(
         }
     }
 
-    status = splitPathByKey( _data_obj_info->objPath,
-                             logicalDirName, MAX_NAME_LEN, logicalFileName, MAX_NAME_LEN, '/' );
+    splitPathByKey( _data_obj_info->objPath, logicalDirName, MAX_NAME_LEN, logicalFileName, MAX_NAME_LEN, '/' );
 
 
     if ( adminMode == 0 ) {
@@ -4716,8 +4715,7 @@ irods::error db_reg_coll_by_admin_op(
         // =-=-=-=-=-=-=-
     }
 
-    status = splitPathByKey( _coll_info->collName,
-                             logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+    splitPathByKey( _coll_info->collName, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
 
     if ( strlen( logicalParentDirName ) == 0 ) {
         snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
@@ -4912,8 +4910,7 @@ irods::error db_reg_coll_op(
         return ERROR( CATALOG_NOT_CONNECTED, "catalog not connected" );
     }
 
-    status = splitPathByKey( _coll_info->collName,
-                             logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+    splitPathByKey( _coll_info->collName, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
 
     if ( strlen( logicalParentDirName ) == 0 ) {
         snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
@@ -6361,8 +6358,7 @@ irods::error db_del_coll_by_admin_op(
         return ERROR( CAT_INSUFFICIENT_PRIVILEGE_LEVEL, "insufficient privilege" );
     }
 
-    status = splitPathByKey( _coll_info->collName,
-                             logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+    splitPathByKey( _coll_info->collName, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
 
     if ( strlen( logicalParentDirName ) == 0 ) {
         snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
@@ -6784,7 +6780,6 @@ irods::error db_check_auth_op(
 
     expireTime = atoll( goodPwExpiry );
     getNowStr( myTime );
-    nowTime = atoll( myTime );
 
     /* Check for PAM_AUTH type passwords */
     pamMaxTime = atoll( irods_pam_password_max_time );
@@ -7335,10 +7330,10 @@ irods::error db_make_limited_pw_op(
     cllBindVars[cllBindVarCount++] = irods_pam_password_max_time;
     cllBindVars[cllBindVarCount++] = myTime;
 #if MY_ICAT
-    status =  cmlExecuteNoAnswerSql( "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as signed integer)>=? and cast(pass_expiry_ts as signed integer)<=? and (cast(pass_expiry_ts as signed integer) + cast(modify_ts as signed integer) < ?)",
+    cmlExecuteNoAnswerSql( "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as signed integer)>=? and cast(pass_expiry_ts as signed integer)<=? and (cast(pass_expiry_ts as signed integer) + cast(modify_ts as signed integer) < ?)",
                                      &icss );
 #else
-    status =  cmlExecuteNoAnswerSql( "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as integer)>=? and cast(pass_expiry_ts as integer)<=? and (cast(pass_expiry_ts as integer) + cast(modify_ts as integer) < ?)",
+    cmlExecuteNoAnswerSql( "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as integer)>=? and cast(pass_expiry_ts as integer)<=? and (cast(pass_expiry_ts as integer) + cast(modify_ts as integer) < ?)",
                                      &icss );
 #endif
 
@@ -7460,9 +7455,9 @@ irods::error db_update_pam_password_op(
     cllBindVars[cllBindVarCount++] = irods_pam_password_max_time;
     cllBindVars[cllBindVarCount++] = myTime;
 #if MY_ICAT
-    status =  cmlExecuteNoAnswerSql( "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as signed integer)>=? and cast(pass_expiry_ts as signed integer)<=? and (cast(pass_expiry_ts as signed integer) + cast(modify_ts as signed integer) < ?)",
+    cmlExecuteNoAnswerSql( "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as signed integer)>=? and cast(pass_expiry_ts as signed integer)<=? and (cast(pass_expiry_ts as signed integer) + cast(modify_ts as signed integer) < ?)",
 #else
-    status =  cmlExecuteNoAnswerSql( "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as integer)>=? and cast(pass_expiry_ts as integer)<=? and (cast(pass_expiry_ts as integer) + cast(modify_ts as integer) < ?)",
+    cmlExecuteNoAnswerSql( "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as integer)>=? and cast(pass_expiry_ts as integer)<=? and (cast(pass_expiry_ts as integer) + cast(modify_ts as integer) < ?)",
 #endif
                                      & icss );
     if ( logSQL != 0 ) rodsLog( LOG_SQL, "chlUpdateIrodsPamPassword SQL 3" );
@@ -7541,7 +7536,7 @@ irods::error db_update_pam_password_op(
 
         }
         else {
-            rodsLog( LOG_STATUS, "chlUpdateIrodsPamPassword :: getting a new password [%s] has a single quote", randomPwEncoded );
+            rodsLog( LOG_DEBUG, "chlUpdateIrodsPamPassword :: getting a new password [%s] has a single quote", randomPwEncoded );
 
         }
 
@@ -7620,8 +7615,7 @@ irods::error db_mod_user_op(
     char form2[] = "update R_USER_MAIN set %s=%s, modify_ts=? where user_name=? and zone_name=?";
     char form3[] = "update R_USER_PASSWORD set rcat_password=?, modify_ts=? where user_id=?";
     char form4[] = "insert into R_USER_PASSWORD (user_id, rcat_password, pass_expiry_ts,  create_ts, modify_ts) values ((select user_id from R_USER_MAIN where user_name=? and zone_name=?), ?, ?, ?, ?)";
-    char form5a[] = "insert into R_USER_AUTH (user_id, user_auth_name, create_ts) values ((select user_id from R_USER_MAIN where user_name=? and zone_name=?), ?, ?)";
-    char form5b[] = "update R_USER_AUTH set user_auth_name=? where user_id = (select user_id from R_USER_MAIN where user_name=? and zone_name=?)";
+    char form5[] = "insert into R_USER_AUTH (user_id, user_auth_name, create_ts) values ((select user_id from R_USER_MAIN where user_name=? and zone_name=?), ?, ?)";
     char form6[] = "delete from R_USER_AUTH where user_id = (select user_id from R_USER_MAIN where user_name=? and zone_name=?) and user_auth_name = ?";
 #if MY_ICAT
     char form7[] = "delete from R_USER_PASSWORD where pass_expiry_ts not like '9999%' and cast(pass_expiry_ts as signed integer)>=? and cast(pass_expiry_ts as signed integer)<=? and user_id = (select user_id from R_USER_MAIN where user_name=? and zone_name=?)";
@@ -7635,7 +7629,6 @@ irods::error db_mod_user_op(
     int auditId;
     char auditComment[110];
     char auditUserName[110];
-    int userSettingOwnPassword;
     int groupAdminSettingPassword; // JMC - backport 4772
 
     char userName2[NAME_LEN];
@@ -7657,7 +7650,6 @@ irods::error db_mod_user_op(
         return ERROR( CAT_INVALID_ARGUMENT, "new value is empty" );
     }
 
-    userSettingOwnPassword = 0;
     // =-=-=-=-=-=-=-
     // JMC - backport 4772
     groupAdminSettingPassword = 0;
@@ -7671,12 +7663,8 @@ irods::error db_mod_user_op(
             /* only password (in cases below) is allowed */
             return ERROR( CAT_INSUFFICIENT_PRIVILEGE_LEVEL, "insufficient privilege" );
         }
-        if ( strcmp( _user_name, _ctx.comm()->clientUser.userName ) == 0 )  {
-            userSettingOwnPassword = 1;
-        }
-        else {
-            int status2;
-            status2  = cmlCheckGroupAdminAccess(
+        if ( 0 != strcmp( _user_name, _ctx.comm()->clientUser.userName ) )  {
+            int status2 = cmlCheckGroupAdminAccess(
                            _ctx.comm()->clientUser.userName,
                            _ctx.comm()->clientUser.rodsZone,
                            "", &icss );
@@ -7742,17 +7730,14 @@ irods::error db_mod_user_op(
     }
     if ( strcmp( _option, "addAuth" ) == 0 ) {
         opType = 4;
-        if ( !_userInRUserAuth( userName2, zoneName ) ) {
-            rstrcpy( tSQL, form5a, MAX_SQL_SIZE );
+        if ( !_userInRUserAuth( userName2, zoneName, _new_value ) ) {
+            rstrcpy( tSQL, form5, MAX_SQL_SIZE );
             cllBindVars[cllBindVarCount++] = userName2;
             cllBindVars[cllBindVarCount++] = zoneName;
             cllBindVars[cllBindVarCount++] = _new_value;
             cllBindVars[cllBindVarCount++] = myTime;
         } else {
-            rstrcpy( tSQL, form5b, MAX_SQL_SIZE );
-            cllBindVars[cllBindVarCount++] = _new_value;
-            cllBindVars[cllBindVarCount++] = userName2;
-            cllBindVars[cllBindVarCount++] = zoneName;
+            return SUCCESS();
         }
 
         if ( logSQL != 0 ) {
@@ -7821,9 +7806,7 @@ irods::error db_mod_user_op(
         i = decodePw( _ctx.comm(), _new_value, decoded );
         int status2 = icatApplyRule( _ctx.comm(), ( char* )"acCheckPasswordStrength", decoded );
         if ( status2 == NO_RULE_OR_MSI_FUNCTION_FOUND_ERR ) {
-            int status3;
-            status3 = addRErrorMsg( &_ctx.comm()->rError, 0,
-                                    "acCheckPasswordStrength rule not found" );
+            addRErrorMsg( &_ctx.comm()->rError, 0, "acCheckPasswordStrength rule not found" );
         }
 
         if ( status2 ) {
@@ -8747,12 +8730,12 @@ irods::error db_mod_resc_data_paths_op(
         }
         cllBindVars[cllBindVarCount++] = _old_path;
         cllBindVars[cllBindVarCount++] = _new_path;
-        cllBindVars[cllBindVarCount++] = _resc_name;
+        cllBindVars[cllBindVarCount++] = rescId;
         cllBindVars[cllBindVarCount++] = oldPath2;
         cllBindVars[cllBindVarCount++] = userName2;
         cllBindVars[cllBindVarCount++] = zoneToUse;
         status =  cmlExecuteNoAnswerSql(
-                      "update R_DATA_MAIN set data_path = replace (R_DATA_MAIN.data_path, ?, ?) where resc_name=? and data_path like ? and data_owner_name=? and data_owner_zone=?",
+                      "update R_DATA_MAIN set data_path = replace (R_DATA_MAIN.data_path, ?, ?) where resc_id=? and data_path like ? and data_owner_name=? and data_owner_zone=?",
                       &icss );
     }
     else {
@@ -8761,10 +8744,10 @@ irods::error db_mod_resc_data_paths_op(
         }
         cllBindVars[cllBindVarCount++] = _old_path;
         cllBindVars[cllBindVarCount++] = _new_path;
-        cllBindVars[cllBindVarCount++] = _resc_name;
+        cllBindVars[cllBindVarCount++] = rescId;
         cllBindVars[cllBindVarCount++] = oldPath2;
         status =  cmlExecuteNoAnswerSql(
-                      "update R_DATA_MAIN set data_path = replace (R_DATA_MAIN.data_path, ?, ?) where resc_name=? and data_path like ?",
+                      "update R_DATA_MAIN set data_path = replace (R_DATA_MAIN.data_path, ?, ?) where resc_id=? and data_path like ?",
                       &icss );
     }
     if ( status != 0 ) {
@@ -8789,7 +8772,7 @@ irods::error db_mod_resc_data_paths_op(
         char rowsMsg[100];
         snprintf( rowsMsg, 100, "%d rows updated",
                   rows );
-        status = addRErrorMsg( &_ctx.comm()->rError, 0, rowsMsg );
+        addRErrorMsg( &_ctx.comm()->rError, 0, rowsMsg );
     }
 
     return SUCCESS();
@@ -9392,7 +9375,7 @@ irods::error db_add_avu_metadata_wild_op(
     char myTime[50];
     char seqNumStr[MAX_NAME_LEN];
 
-    status = splitPathByKey( _name, collection, MAX_NAME_LEN, objectName, MAX_NAME_LEN, '/' );
+    splitPathByKey( _name, collection, MAX_NAME_LEN, objectName, MAX_NAME_LEN, '/' );
 
     if ( strlen( collection ) == 0 ) {
         snprintf( collection, sizeof( collection ), "%s", PATH_SEPARATOR );
@@ -9563,8 +9546,7 @@ irods::error db_add_avu_metadata_op(
     }
 
     if ( itype == 1 ) {
-        status = splitPathByKey( _name,
-                                 logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+        splitPathByKey( _name, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
         if ( strlen( logicalParentDirName ) == 0 ) {
             snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
             snprintf( logicalEndName, sizeof( logicalEndName ), "%s", _name );
@@ -10017,8 +9999,7 @@ irods::error db_del_avu_metadata_op(
     }
 
     if ( itype == 1 ) {
-        status = splitPathByKey( _name,
-                                 logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+        splitPathByKey( _name, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
         if ( strlen( logicalParentDirName ) == 0 ) {
             snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
             snprintf( logicalEndName, sizeof( logicalEndName ), "%s", _name );
@@ -10725,8 +10706,8 @@ irods::error db_mod_access_control_op(
     if ( status1 < 0 ) {
         char logicalEndName[MAX_NAME_LEN];
         char logicalParentDirName[MAX_NAME_LEN];
-        int status2 = splitPathByKey( _path_name,
-                                      logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+        int status2;
+        splitPathByKey( _path_name, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
         if ( strlen( logicalParentDirName ) == 0 ) {
             snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
             snprintf( logicalEndName, sizeof( logicalEndName ), "%s", _path_name + 1 );
@@ -12592,7 +12573,6 @@ irods::error db_calc_usage_and_quota_op(
     int status;
     char myTime[50];
 
-    status = 0;
     if ( _ctx.comm()->clientUser.authInfo.authFlag < LOCAL_PRIV_USER_AUTH ) {
         return ERROR( CAT_INSUFFICIENT_PRIVILEGE_LEVEL, "insufficient privilege" );
     }
@@ -13737,7 +13717,7 @@ irods::error db_add_specific_query_op(
                          tsCreateTime, 50, bindVars, &icss );
         }
         if ( status == 0 ) {
-            i = addRErrorMsg( &_ctx.comm()->rError, 0, "Alias is not unique" );
+            addRErrorMsg( &_ctx.comm()->rError, 0, "Alias is not unique" );
             return ERROR( CAT_INVALID_ARGUMENT, "alias is not unique" );
         }
         i = 0;
@@ -14334,7 +14314,7 @@ irods::error db_get_repl_list_for_leaf_bundles_op(
     irods::plugin_context&      _ctx,
     rodsLong_t                  _count,
     size_t                      _child_index,
-    std::vector<leaf_bundle_t>* _bundles,
+    const std::vector<leaf_bundle_t>* _bundles,
     dist_child_result_t*        _results ) {
 
     // =-=-=-=-=-=-=-
@@ -14344,14 +14324,11 @@ irods::error db_get_repl_list_for_leaf_bundles_op(
         return PASS( ret );
     }
 
-    // =-=-=-=-=-=-=-
-    // check incoming pointers
-    if( _count <= 0      ||
-        _bundles->empty() ||
-        !_results ) {
-        return ERROR(
-                   SYS_INVALID_INPUT_PARAM,
-                   "null or invalid input param" );
+    if (_count <= 0) {
+        return ERROR(SYS_INVALID_INPUT_PARAM, boost::format("invalid _count [%d]") % _count);
+    }
+    if (_bundles->empty()) {
+        return ERROR(SYS_INVALID_INPUT_PARAM, "no bundles");
     }
 
     // capture list of child resc ids
@@ -14359,14 +14336,10 @@ irods::error db_get_repl_list_for_leaf_bundles_op(
     for( auto id : (*_bundles)[_child_index] ) {
         child_array_stream << id << ",";
     }
-
-    if(child_array_stream.str().empty()) {
-        return ERROR(
-                  SYS_INVALID_INPUT_PARAM,
-                  "leaf arry is empty");
-    }
-
     std::string child_array = child_array_stream.str();
+    if (child_array.empty()) {
+        return ERROR(SYS_INVALID_INPUT_PARAM, "leaf arry is empty");
+    }
     child_array.pop_back(); // trim last ','
 
     std::stringstream not_child_stream;
@@ -14382,44 +14355,38 @@ irods::error db_get_repl_list_for_leaf_bundles_op(
     std::string not_child_array = not_child_stream.str();
     not_child_array.pop_back(); // trim last ','
 
-    std::string base_query = "select distinct data_id from R_DATA_MAIN where data_id in (select data_id from R_DATA_MAIN where resc_id in (%s)) and data_id not in (select data_id from R_DATA_MAIN where resc_id in (%s))";
-    char query[ MAX_NAME_LEN ];
-    snprintf(
-        query,
-        MAX_NAME_LEN,
-        base_query.c_str(),
-        not_child_array.c_str(),
-        child_array.c_str());
-    // =-=-=-=-=-=-=-
-    // snag the first row from the resulting query
+#ifdef ORA_ICAT
+    const std::string query = (boost::format("select data_id from (select distinct data_id from R_DATA_MAIN where data_id in (select data_id from R_DATA_MAIN where resc_id in (%s)) and data_id not in (select data_id from R_DATA_MAIN where resc_id in (%s))) where rownum <= %d") % not_child_array % child_array % _count).str();
+#else
+    const std::string query = (boost::format("select distinct data_id from R_DATA_MAIN where data_id in (select data_id from R_DATA_MAIN where resc_id in (%s)) and data_id not in (select data_id from R_DATA_MAIN where resc_id in (%s)) limit %d") % not_child_array % child_array % _count).str();
+#endif
+
+    _results->reserve(_count);
+
     int statement_num = 0;
+    const int status_cmlGetFirstRowFromSql = cmlGetFirstRowFromSql(query.c_str(), &statement_num, 0, &icss);
+    if (status_cmlGetFirstRowFromSql == CAT_NO_ROWS_FOUND) {
+        cmlFreeStatement(statement_num, &icss);
+        return SUCCESS();
+    }
+    if (status_cmlGetFirstRowFromSql != 0) {
+        cmlFreeStatement(statement_num, &icss);
+        return ERROR(status_cmlGetFirstRowFromSql, boost::format("failed to get first row from query [%s]") % query);
+    }
+    _results->push_back(atoll(icss.stmtPtr[statement_num]->resultValue[0]));
 
-    // =-=-=-=-=-=-=-
-    // iterate over resulting rows
-    for ( int i = 0; ; i++ ) {
-        // =-=-=-=-=-=-=-
-        // extract either the first or next row
-        int status = 0;
-        if ( 0 == i ) {
-            status = cmlGetFirstRowFromSql(
-                         query,
-                         &statement_num,
-                         0, &icss );
+    for (rodsLong_t i=1; i<_count; ++i) {
+        const int status_cmlGetNextRowFromStatement = cmlGetNextRowFromStatement(statement_num, &icss);
+        if (status_cmlGetNextRowFromStatement == CAT_NO_ROWS_FOUND) {
+            break;
         }
-        else {
-            status = cmlGetNextRowFromStatement( statement_num, &icss );
+        if (status_cmlGetNextRowFromStatement != 0) {
+            cmlFreeStatement(statement_num, &icss);
+            return ERROR(status_cmlGetNextRowFromStatement, boost::format("failed to get row [%d] from query [%s]") % i % query);
         }
-
-        if ( status != 0 ) {
-            return ERROR( status, "failed to get a row" );
-        }
-
-        _results->push_back( atoi( icss.stmtPtr[ statement_num ]->resultValue[0] ) );
-
-    } // for i
-
-    cmlFreeStatement( statement_num, &icss );
-
+        _results->push_back(atoll(icss.stmtPtr[statement_num]->resultValue[0]));
+    }
+    cmlFreeStatement(statement_num, &icss);
     return SUCCESS();
 
 } // db_get_repl_list_for_leaf_bundles_op
@@ -14567,19 +14534,17 @@ irods::error db_mod_ticket_op(
     int i;
     char myTime[50];
 
-    status = 0;
-
     /* session ticket */
     if ( strcmp( _op_name, "session" ) == 0 ) {
         if ( strlen( _arg3 ) > 0 ) {
             /* for 2 server hops, arg3 is the original client addr */
-            status = chlGenQueryTicketSetup( _ticket_string, _arg3 );
+            chlGenQueryTicketSetup( _ticket_string, _arg3 );
             snprintf( mySessionTicket, sizeof( mySessionTicket ), "%s", _ticket_string );
             snprintf( mySessionClientAddr, sizeof( mySessionClientAddr ), "%s", _arg3 );
         }
         else {
             /* for direct connections, rsComm has the original client addr */
-            status = chlGenQueryTicketSetup( _ticket_string, _ctx.comm()->clientAddr );
+            chlGenQueryTicketSetup( _ticket_string, _ctx.comm()->clientAddr );
             snprintf( mySessionTicket, sizeof( mySessionTicket ), "%s", _ticket_string );
             snprintf( mySessionClientAddr, sizeof( mySessionClientAddr ), "%s", _ctx.comm()->clientAddr );
         }
@@ -14600,8 +14565,7 @@ irods::error db_mod_ticket_op(
             return ERROR( CAT_TICKET_INVALID, "ticket string cannot be a number" );
         }
 
-        status = splitPathByKey( _arg4,
-                                 logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
+        splitPathByKey( _arg4, logicalParentDirName, MAX_NAME_LEN, logicalEndName, MAX_NAME_LEN, '/' );
         if ( strlen( logicalParentDirName ) == 0 ) {
             snprintf( logicalParentDirName, sizeof( logicalParentDirName ), "%s", PATH_SEPARATOR );
             snprintf( logicalEndName, sizeof( logicalEndName ), "%s", _arg4 + 1 );
@@ -15852,9 +15816,9 @@ irods::database* plugin_factory(
         function<error(plugin_context&,const string*, const string*, int, dist_child_result_t*)>(
             db_get_distinct_data_objs_missing_from_child_given_parent_op ) );
 
-    pg->add_operation<rodsLong_t,size_t,std::vector<leaf_bundle_t>*,dist_child_result_t*>(
+    pg->add_operation<rodsLong_t,size_t,const std::vector<leaf_bundle_t>*,dist_child_result_t*>(
         DATABASE_OP_GET_REPL_LIST_FOR_LEAF_BUNDLES,
-        function<error(plugin_context&,rodsLong_t,size_t,std::vector<leaf_bundle_t>*,dist_child_result_t*)>(
+        function<error(plugin_context&,rodsLong_t,size_t,const std::vector<leaf_bundle_t>*,dist_child_result_t*)>(
             db_get_repl_list_for_leaf_bundles_op));
     return pg;
 

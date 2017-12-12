@@ -241,6 +241,7 @@ main( int argc, char **argv )
     char* mkdtemp_result = mkdtemp(mkdtemp_template); 
     if ( mkdtemp_result == NULL ) {
         rodsLog( LOG_ERROR, "Error creating tmp directory for iRODS sockets, mkdtemp errno [%d]: [%s]", errno, strerror(errno) );
+        free( logDir );
         return SYS_INTERNAL_ERR;
     }
     strcpy( agent_factory_socket_dir, mkdtemp_result );
@@ -255,6 +256,7 @@ main( int argc, char **argv )
     if ( agent_spawning_pid == 0 ) {
         // Child process
         ProcessType = AGENT_PT;
+        free( logDir );
         return runIrodsAgent( local_addr );
     } else if ( agent_spawning_pid > 0 ) {
         // Parent process
@@ -272,12 +274,14 @@ main( int argc, char **argv )
             int saved_errno = errno;
             if ( ( time( 0 ) - sock_connect_start_time ) > 5 ) {
                 rodsLog(LOG_ERROR, "Error connecting to agent factory socket, errno = [%d]: %s", saved_errno, strerror( saved_errno ) );
+                free( logDir );
                 return SYS_SOCK_CONNECT_ERR;
             }
         }
     } else {
         // Error, fork failed
         rodsLog( LOG_ERROR, "fork() failed when attempting to create agent factory process" );
+        free( logDir );
         return SYS_FORK_ERROR;
     }
 
@@ -288,7 +292,8 @@ int
 serverize( char *logDir ) {
     char *logFile = NULL;
 
-    getLogfileName( &logFile, logDir, RODS_LOGFILE );
+    // [#3563] server process gets unique log
+    getLogfileName( &logFile, logDir, RODS_SERVER_LOGFILE );
 
 #ifdef SYSLOG
     LogFd = 0;
@@ -564,7 +569,8 @@ serverMain( char *logDir ) {
 
             loopCnt++;
             if ( loopCnt >= LOGFILE_CHK_CNT ) {
-                chkLogfileName( logDir, RODS_LOGFILE );
+                // [#3563] server process gets unique log
+                chkLogfileName( logDir, RODS_SERVER_LOGFILE );
                 loopCnt = 0;
             }
         }
@@ -626,7 +632,7 @@ serverExit()
 void
 usage( char *prog ) {
     printf( "Usage: %s [-uvVqs]\n", prog );
-    printf( " -u  user command level, remain attached to the tty\n" );
+    printf( " -u  user command level, remain attached to the tty (foreground)\n" );
     printf( " -v  verbose (LOG_NOTICE)\n" );
     printf( " -V  very verbose (LOG_DEBUG10)\n" );
     printf( " -q  quiet (LOG_ERROR)\n" );

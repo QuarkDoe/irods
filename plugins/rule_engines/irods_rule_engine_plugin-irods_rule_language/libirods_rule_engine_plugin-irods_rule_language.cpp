@@ -67,7 +67,7 @@ const std::string DYNAMIC_PEP_RULE_REGEX = "[^ ]*pep_[^ ]*_(pre|post)";
 const std::string MICROSERVICE_RULE_REGEX = "msi[^ ]*";
 static std::string local_instance_name;
 
-int initRuleEngine( const char*, int, rsComm_t*, const char*, const char*, const char*);
+int initRuleEngine( const char*, rsComm_t*, const char*, const char*, const char *);
 
 static std::string get_string_array_from_array( const boost::any& _array ) {
     std::string str_array;
@@ -152,7 +152,6 @@ irods::error start(irods::default_re_ctx&,const std::string& _instance_name ) {
                 std::string core_dvm = get_string_array_from_array(plugin_spec_cfg.at(irods::CFG_RE_DATA_VARIABLE_MAPPING_SET_KW));
                 int status = initRuleEngine(
                         shmem_value.c_str(),
-                        RULE_ENGINE_TRY_CACHE,
                         nullptr,
                         core_re.c_str(),
                         core_dvm.c_str(),
@@ -285,16 +284,16 @@ irods::error exec_rule(irods::default_re_ctx&, const std::string& _rn, std::list
 
         if(!ret.ok()) {
              rodsLog(LOG_ERROR, "unsupported argument for calling re rules from the rule language");
-             addMsParam(&(ar.msParamArray), strdup(arg), STR_MS_T, strdup("<unconvertible>"), NULL);
+             addMsParam(&(ar.msParamArray), arg, STR_MS_T, (void *) "<unconvertible>", NULL);
         }
         else {
             if( 0 == param.size() ) {
                 rodsLog( LOG_DEBUG, "empty serialized map for parameter %s", arg );
-                addMsParam(&(ar.msParamArray), strdup(arg), STR_MS_T, strdup("<unconvertible>"), NULL);
+                addMsParam(&(ar.msParamArray), arg, STR_MS_T, (void *) "<unconvertible>", NULL);
             }
             else if( 1 == param.size() ) {
                 // only one key-value in them map, bind it as a string
-                addMsParam(&(ar.msParamArray), strdup(arg), STR_MS_T, strdup(param.begin()->second.c_str()), NULL);
+                addMsParam(&(ar.msParamArray), arg, STR_MS_T, (void *) param.begin()->second.c_str(), NULL);
             }
             else {
                 keyValPair_t* kvp = (keyValPair_t*)malloc(sizeof(keyValPair_t));
@@ -302,7 +301,7 @@ irods::error exec_rule(irods::default_re_ctx&, const std::string& _rn, std::list
                 for( auto i : param ) {
                     addKeyVal( kvp, i.first.c_str(), i.second.c_str() );
                 }
-                addMsParam(&(ar.msParamArray), strdup(arg), KeyValPair_MS_T, kvp, NULL );
+                addMsParam(&(ar.msParamArray), arg, KeyValPair_MS_T, kvp, NULL );
             }
         }
 
@@ -329,8 +328,6 @@ irods::error exec_rule(irods::default_re_ctx&, const std::string& _rn, std::list
         }
         i++;
     }
-
-    rmMsParamByLabel(&(ar.msParamArray), "ruleExecOut", 0);
 
     rodsLog(
         LOG_DEBUG,

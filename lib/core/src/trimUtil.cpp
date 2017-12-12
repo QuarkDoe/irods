@@ -67,7 +67,7 @@ trimUtil( rcComm_t *conn, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs,
     }
     printf(
         "Total size trimmed = %-.3f MB. Number of files trimmed = %d.\n",
-        ( float ) TotalSizeTrimmed / 1048600.0, TotalTrimmed );
+        ( float ) TotalSizeTrimmed / 1048576.0, TotalTrimmed );
     return savedStatus;
 }
 
@@ -75,6 +75,7 @@ int
 trimDataObjUtil( rcComm_t *conn, char *srcPath,
                  rodsArguments_t *rodsArgs, dataObjInp_t *dataObjInp ) {
     int status = 0;
+    rodsObjStat_t *rodsObjStatOut = NULL;
 
     if ( srcPath == NULL ) {
         rodsLog( LOG_ERROR,
@@ -86,6 +87,9 @@ trimDataObjUtil( rcComm_t *conn, char *srcPath,
 
     status = rcDataObjTrim( conn, dataObjInp );
 
+    if ( status < 0 ) {
+        return status;
+    }
     if ( status >= 0 && rodsArgs->verbose == True ) {
         char myDir[MAX_NAME_LEN], myFile[MAX_NAME_LEN];
         splitPathByKey( srcPath, myDir, MAX_NAME_LEN, myFile, MAX_NAME_LEN, '/' );
@@ -94,6 +98,20 @@ trimDataObjUtil( rcComm_t *conn, char *srcPath,
         }
         else {
             printf( "%s - No copy trimmed\n", myFile );
+        }
+    }
+
+    if ( status > 0 ) {
+        const int objStatus = rcObjStat(conn, dataObjInp, &rodsObjStatOut);
+        if ( objStatus < 0 ) {
+            return objStatus;
+        } 
+        if ( objStatus == DATA_OBJ_T ) {
+            TotalSizeTrimmed += rodsObjStatOut->objSize;
+            TotalTrimmed++;
+        } else {
+            rodsLog( LOG_ERROR, "trimDataObjUtil: invalid object");
+            return INVALID_OBJECT_TYPE;
         }
     }
 
@@ -200,11 +218,6 @@ trimCollUtil( rcComm_t *conn, char *srcColl, rodsEnv *myRodsEnv,
                               srcChildPath, status );
                 /* need to set global error here */
                 savedStatus = status;
-            }
-            else if ( status > 0 ) {
-                /* > 0 means the file got trimed */
-                TotalSizeTrimmed += collEnt.dataSize;
-                TotalTrimmed++;
             }
         }
         else if ( collEnt.objType == COLL_OBJ_T ) {

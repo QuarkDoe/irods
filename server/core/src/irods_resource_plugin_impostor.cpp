@@ -55,14 +55,14 @@ irods::error impostor_file_open(
 irods::error impostor_file_read(
     irods::plugin_context& _ctx,
     void*,
-    int ) {
+    const int ) {
     return irods::impostor_resource::report_error( _ctx );
 } // impostor_file_read
 
 irods::error impostor_file_write(
     irods::plugin_context& _ctx,
-    void*,
-    int ) {
+    const void*,
+    const int ) {
     return irods::impostor_resource::report_error( _ctx );
 } // impostor_file_write
 
@@ -84,8 +84,8 @@ irods::error impostor_file_stat(
 
 irods::error impostor_file_lseek(
     irods::plugin_context& _ctx,
-    long long ,
-    int ) {
+    const long long ,
+    const int ) {
     return irods::impostor_resource::report_error( _ctx );
 } // impostor_file_lseek
 
@@ -326,56 +326,62 @@ irods::error impostor_file_resolve_hierarchy(
     const std::string*                  _curr_host,
     irods::hierarchy_parser*           _out_parser,
     float*                              _out_vote ) {
-    irods::error result = SUCCESS();
 
     // =-=-=-=-=-=-=-
     // check the context validity
     irods::error ret = _ctx.valid< irods::file_object >();
-    if ( ( result = ASSERT_PASS( ret, "Invalid resource context." ) ).ok() ) {
-
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        if ( ( result = ASSERT_ERROR( _opr && _curr_host && _out_parser && _out_vote, SYS_INVALID_INPUT_PARAM, "Invalid input parameter." ) ).ok() ) {
-            // =-=-=-=-=-=-=-
-            // cast down the chain to our understood object type
-            irods::file_object_ptr file_obj = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-
-            // =-=-=-=-=-=-=-
-            // get the name of this resource
-            std::string resc_name;
-            ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name );
-            if ( ( result = ASSERT_PASS( ret, "Failed in get property for name." ) ).ok() ) {
-                // =-=-=-=-=-=-=-
-                // add ourselves to the hierarchy parser by default
-                _out_parser->add_child( resc_name );
-
-                // =-=-=-=-=-=-=-
-                // test the operation to determine which choices to make
-                if ( irods::OPEN_OPERATION  == ( *_opr ) ||
-                        irods::WRITE_OPERATION == ( *_opr ) ) {
-                    // =-=-=-=-=-=-=-
-                    // call redirect determination for 'get' operation
-                    ret = impostor_file_resolve_hierarchy_open( _ctx.prop_map(), file_obj, resc_name, ( *_curr_host ), ( *_out_vote ) );
-                    result = ASSERT_PASS( ret, "Failed redirecting for open." );
-
-                }
-                else if ( irods::CREATE_OPERATION == ( *_opr ) ) {
-                    // =-=-=-=-=-=-=-
-                    // call redirect determination for 'create' operation
-                    ret = impostor_file_resolve_hierarchy_create( _ctx.prop_map(), resc_name, ( *_curr_host ), ( *_out_vote ) );
-                    result = ASSERT_PASS( ret, "Failed redirecting for create." );
-                }
-
-                else {
-                    // =-=-=-=-=-=-=-
-                    // must have been passed a bad operation
-                    result = ASSERT_ERROR( false, INVALID_OPERATION, "Operation not supported." );
-                }
-            }
-        }
+    if ( !ret.ok() ) {
+        return PASSMSG( "Invalid resource context.", ret );
     }
 
-    return result;
+    // =-=-=-=-=-=-=-
+    // check incoming parameters
+    if( NULL == _opr || NULL == _curr_host || NULL == _out_parser || NULL == _out_vote ) {
+        return ERROR( SYS_INVALID_INPUT_PARAM, "Invalid input parameter." );
+    }
+
+    // =-=-=-=-=-=-=-
+    // get the name of this resource
+    std::string resc_name;
+    ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name );
+    if ( !ret.ok() ) {
+        return PASSMSG( "Failed in get property for name.", ret );
+    }
+
+    // =-=-=-=-=-=-=-
+    // add ourselves to the hierarchy parser by default
+    _out_parser->add_child( resc_name );
+
+    // =-=-=-=-=-=-=-
+    // test the operation to determine which choices to make
+    if ( irods::OPEN_OPERATION  == ( *_opr ) ||
+            irods::WRITE_OPERATION == ( *_opr ) ) {
+        // =-=-=-=-=-=-=-
+        // cast down the chain to our understood object type
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
+
+        // =-=-=-=-=-=-=-
+        // call redirect determination for 'open' operation
+        ret = impostor_file_resolve_hierarchy_open( _ctx.prop_map(), file_obj, resc_name, ( *_curr_host ), ( *_out_vote ) );
+        if ( !ret.ok() ) {
+            ret = PASSMSG( "Failed redirecting for open.", ret );
+        }
+    }
+    else if ( irods::CREATE_OPERATION == ( *_opr ) ) {
+        // =-=-=-=-=-=-=-
+        // call redirect determination for 'create' operation
+        ret = impostor_file_resolve_hierarchy_create( _ctx.prop_map(), resc_name, ( *_curr_host ), ( *_out_vote ) );
+        if ( !ret.ok() ) {
+            ret = PASSMSG( "Failed redirecting for create.", ret );
+        }
+    }
+    else {
+        // =-=-=-=-=-=-=-
+        // must have been passed a bad operation
+        ret = ERROR( INVALID_OPERATION, "Operation not supported." );
+    }
+
+    return ret;
 
 } // impostor_file_resolve_hierarchy
 
@@ -404,15 +410,15 @@ namespace irods {
             function<error(plugin_context&)>(
                 impostor_file_open ) );
 
-        add_operation<void*,int>(
+        add_operation<void*,const int>(
             irods::RESOURCE_OP_READ,
             std::function<
-                error(irods::plugin_context&,void*,int)>(
+                error(irods::plugin_context&,void*,const int)>(
                     impostor_file_read ) );
 
-        add_operation<void*,int>(
+        add_operation<const void*,const int>(
             irods::RESOURCE_OP_WRITE,
-            function<error(plugin_context&,void*,int)>(
+            function<error(plugin_context&,const void*,const int)>(
                 impostor_file_write ) );
 
         add_operation(
@@ -455,7 +461,7 @@ namespace irods {
             function<error(plugin_context&)>(
                 impostor_file_getfs_freespace ) );
 
-        add_operation<long long, int>(
+        add_operation<const long long, const int>(
             irods::RESOURCE_OP_LSEEK,
             function<error(plugin_context&, long long, int)>(
                 impostor_file_lseek ) );

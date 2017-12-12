@@ -233,7 +233,7 @@ irsPhyPathReg( rsComm_t *rsComm, dataObjInp_t *phyPathRegInp ) {
         } // if dst_resc
         else {
             // =-=-=-=-=-=-=-
-            // no resc is specificied, request a hierarchy given the default resource
+            // no resc is specified, request a hierarchy given the default resource
             irods::file_object_ptr file_obj( new irods::file_object() );
             irods::error ret = irods::resolve_resource_hierarchy(
                                    irods::CREATE_OPERATION,
@@ -413,9 +413,6 @@ _rsPhyPathReg( rsComm_t *rsComm, dataObjInp_t *phyPathRegInp,
             return status;
         }
     }
-    else {
-        status = 0;
-    }
 
     if ( getValByKey( &phyPathRegInp->condInput, COLLECTION_KW ) != NULL ) {
         excludePatternFile = getValByKey( &phyPathRegInp->condInput, EXCLUDE_FILE_KW );
@@ -556,12 +553,8 @@ filePathReg( rsComm_t *rsComm, dataObjInp_t *phyPathRegInp, const char *_resc_na
         return status;
     }
 
-    if ( ( chksum = getValByKey( &phyPathRegInp->condInput,
-                                 REG_CHKSUM_KW ) ) != NULL ) {
-        rstrcpy( dataObjInfo.chksum, chksum, NAME_LEN );
-    }
-    else if ( ( chksum = getValByKey( &phyPathRegInp->condInput,
-                                      VERIFY_CHKSUM_KW ) ) != NULL ) {
+    if ( ( getValByKey( &phyPathRegInp->condInput, REG_CHKSUM_KW ) != NULL ) ||
+         ( getValByKey( &phyPathRegInp->condInput, VERIFY_CHKSUM_KW ) != NULL ) ) {
         chksum = 0;
         status = _dataObjChksum( rsComm, &dataObjInfo, &chksum );
         if ( status < 0 ) {
@@ -757,18 +750,15 @@ dirPathReg( rsComm_t *rsComm, dataObjInp_t *phyPathRegInp, char *filePath,
             }
             subPhyPathRegInp.dataSize = myStat->st_size;
             if ( getValByKey( &phyPathRegInp->condInput, REG_REPL_KW ) != NULL ) {
-                status = filePathRegRepl( rsComm, &subPhyPathRegInp,
-                                          fileStatInp.fileName, _resc_name );
+                filePathRegRepl( rsComm, &subPhyPathRegInp, fileStatInp.fileName, _resc_name );
             }
             else {
-                addKeyVal( &subPhyPathRegInp.condInput, FILE_PATH_KW,
-                           fileStatInp.fileName );
-                status = filePathReg( rsComm, &subPhyPathRegInp, _resc_name );
+                addKeyVal( &subPhyPathRegInp.condInput, FILE_PATH_KW, fileStatInp.fileName );
+                filePathReg( rsComm, &subPhyPathRegInp, _resc_name );
             }
         }
         else if ( ( myStat->st_mode & S_IFDIR ) != 0 ) {    /* a directory */
-            status = dirPathReg( rsComm, &subPhyPathRegInp,
-                                 fileStatInp.fileName, _resc_name );
+            dirPathReg( rsComm, &subPhyPathRegInp, fileStatInp.fileName, _resc_name );
         }
         free( myStat );
         free( rodsDirent ); // JMC - backport 4835

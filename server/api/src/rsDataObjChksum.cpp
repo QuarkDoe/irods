@@ -9,10 +9,64 @@
 #include "getRemoteZoneResc.h"
 #include "rsDataObjChksum.hpp"
 #include "rsModDataObjMeta.hpp"
+#include "rsFileStat.hpp"
+#include "boost/lexical_cast.hpp"
+#include "rsGenQuery.hpp"
 
 // =-=-=-=-=-=-=-
 #include "irods_resource_backport.hpp"
 #include "irods_resource_redirect.hpp"
+
+
+namespace {
+    // assumes zone redirection has already occurred, and that the function is being called on a server in the zone the object belongs to
+    int verifyVaultSizeEqualsDatabaseSize( rsComm_t *rsComm, dataObjInfo_t *dataObjInfo) {
+        fileStatInp_t fileStatInp;
+        memset(&fileStatInp, 0, sizeof(fileStatInp));
+        rstrcpy(fileStatInp.objPath, dataObjInfo->objPath, sizeof(fileStatInp.objPath));
+        rstrcpy(fileStatInp.rescHier, dataObjInfo->rescHier, sizeof(fileStatInp.rescHier));
+        rstrcpy(fileStatInp.fileName, dataObjInfo->filePath, sizeof(fileStatInp.fileName));
+        rodsStat_t *fileStatOut = nullptr;
+        const int status_rsFileStat = rsFileStat(rsComm, &fileStatInp, &fileStatOut);
+        if (status_rsFileStat < 0) {
+            rodsLog(LOG_ERROR, "verifyVaultSizeEqualsDatabaseSize: rsFileStat of objPath [%s] rescHier [%s] fileName [%s] failed with [%d]", fileStatInp.objPath, fileStatInp.rescHier, fileStatInp.fileName, status_rsFileStat);
+            return status_rsFileStat;
+        }
+        const rodsLong_t size_in_vault = fileStatOut->st_size;
+        free(fileStatOut);
+        genQueryInp_t genQueryInp;
+        memset(&genQueryInp, 0, sizeof(genQueryInp));
+        addInxIval(&genQueryInp.selectInp, COL_DATA_SIZE, 1);
+        addInxVal(&genQueryInp.sqlCondInp, COL_D_DATA_PATH, (boost::format(" = '%s'") % dataObjInfo->filePath).str().c_str());
+        genQueryInp.maxRows = 1;
+        genQueryOut_t *genQueryOut = nullptr;
+        const int status_rsGenQuery = rsGenQuery(rsComm, &genQueryInp, &genQueryOut);
+        clearGenQueryInp(&genQueryInp);
+        if (status_rsGenQuery < 0) {
+            if (status_rsGenQuery == CAT_NO_ROWS_FOUND) {
+                freeGenQueryOut(&genQueryOut);
+            }
+            rodsLog(LOG_ERROR, "_rsFileChksum: rsGenQuery of [%s] [%s] [%s] failed with [%d]", dataObjInfo->filePath, dataObjInfo->rescHier, dataObjInfo->objPath, status_rsGenQuery);
+            return status_rsGenQuery;
+        }
+
+        rodsLong_t size_in_database;
+        try {
+            size_in_database = boost::lexical_cast<rodsLong_t>(genQueryOut->sqlResult[0].value);
+        } catch (const boost::bad_lexical_cast&) {
+            freeGenQueryOut(&genQueryOut);
+            rodsLog(LOG_ERROR, "_rsFileChksum: lexical_cast of [%s] for [%s] [%s] [%s] failed", genQueryOut->sqlResult[0].value, dataObjInfo->filePath, dataObjInfo->rescHier, dataObjInfo->objPath);
+            return INVALID_LEXICAL_CAST;
+        }
+        freeGenQueryOut(&genQueryOut);
+        if (size_in_database != size_in_vault) {
+            rodsLog(LOG_ERROR, "_rsFileChksum: file size mismatch. resource hierarchy [%s] vault path [%s] size [%ji] object path [%s] size [%ji]", dataObjInfo->rescHier, dataObjInfo->filePath,
+                    static_cast<intmax_t>(size_in_vault), dataObjInfo->objPath, static_cast<intmax_t>(size_in_database));
+            return USER_FILE_SIZE_MISMATCH;
+        }
+        return 0;
+    }
+}
 
 int
 rsDataObjChksum( rsComm_t *rsComm, dataObjInp_t *dataObjChksumInp,
@@ -68,146 +122,125 @@ rsDataObjChksum( rsComm_t *rsComm, dataObjInp_t *dataObjChksumInp,
 int
 _rsDataObjChksum( rsComm_t *rsComm, dataObjInp_t *dataObjInp,
                   char **outChksumStr, dataObjInfo_t **dataObjInfoHead ) {
-    int status;
-    dataObjInfo_t *tmpDataObjInfo;
-    int allFlag;
-    int verifyFlag;
-    int forceFlag;
-
-    char* inp_chksum = getValByKey( &dataObjInp->condInput, ORIG_CHKSUM_KW );
-
-    if ( getValByKey( &dataObjInp->condInput, CHKSUM_ALL_KW ) != NULL ) {
-        allFlag = 1;
-    }
-    else {
-        allFlag = 0;
-    }
-
-    if ( getValByKey( &dataObjInp->condInput, VERIFY_CHKSUM_KW ) != NULL ) {
-        verifyFlag = 1;
-    }
-    else {
-        verifyFlag = 0;
-    }
-
-    if ( getValByKey( &dataObjInp->condInput, FORCE_CHKSUM_KW ) != NULL ) {
-        forceFlag = 1;
-    }
-    else {
-        forceFlag = 0;
-    }
 
     *dataObjInfoHead = NULL;
     *outChksumStr = NULL;
 
-    status = getDataObjInfoIncSpecColl( rsComm, dataObjInp, dataObjInfoHead );
-    if ( status < 0 ) {
-        return status;
+    bool allFlag = getValByKey( &dataObjInp->condInput, CHKSUM_ALL_KW ) != NULL;
+    bool verifyFlag = getValByKey( &dataObjInp->condInput, VERIFY_CHKSUM_KW ) != NULL;
+    bool forceFlag = getValByKey( &dataObjInp->condInput, FORCE_CHKSUM_KW ) != NULL;
+    const bool shouldVerifyVaultSizeEqualsDatabaseSize = getValByKey( &dataObjInp->condInput, VERIFY_VAULT_SIZE_EQUALS_DATABASE_SIZE_KW ) != NULL;
+
+    int status_getDataObjInfoIncSpecColl = getDataObjInfoIncSpecColl( rsComm, dataObjInp, dataObjInfoHead );
+    if ( status_getDataObjInfoIncSpecColl < 0 ) {
+        return status_getDataObjInfoIncSpecColl;
     }
-    else if ( allFlag == 0 ) {
+
+    int status = 0;
+    if ( !allFlag ) {
         /* screen out any stale copies */
-        status = sortObjInfoForOpen( dataObjInfoHead, &dataObjInp->condInput, 0 );
-        if ( status < 0 ) {
-            return status;
+        int status_sortObjInfoForOpen = sortObjInfoForOpen( dataObjInfoHead, &dataObjInp->condInput, 0 );
+        if ( status_sortObjInfoForOpen < 0 ) {
+            return status_sortObjInfoForOpen;
         }
 
-        tmpDataObjInfo = *dataObjInfoHead;
-        if ( tmpDataObjInfo->next == NULL ) {
-            /* the only copy */
-            if ( strlen( tmpDataObjInfo->chksum ) > 0 ) {
-                if ( verifyFlag == 0 && forceFlag == 0 ) {
+        dataObjInfo_t *tmpDataObjInfo = *dataObjInfoHead;
+        do {
+            if ( ( tmpDataObjInfo->replStatus > 0 || !(*dataObjInfoHead)->next ) && strlen( tmpDataObjInfo->chksum ) > 0 ) {
+                if ( !verifyFlag && !forceFlag ) {
                     *outChksumStr = strdup( tmpDataObjInfo->chksum );
                     return 0;
                 }
-            }
-        }
-        else {
-            while ( tmpDataObjInfo != NULL ) {
-                if ( tmpDataObjInfo->replStatus > 0 && strlen( tmpDataObjInfo->chksum ) > 0 ) {
-                    if ( verifyFlag == 0 && forceFlag == 0 ) {
-                        *outChksumStr = strdup( tmpDataObjInfo->chksum );
-                        return 0;
-                    }
-                    else {
-                        break;
-                    }
+                else {
+                    break;
                 }
-
-                tmpDataObjInfo = tmpDataObjInfo->next;
             }
-        }
-        /* need to compute the chksum */
-        if ( tmpDataObjInfo == NULL ) {
+
+        } while ( (tmpDataObjInfo = tmpDataObjInfo->next) );
+
+        if ( !tmpDataObjInfo ) {
             tmpDataObjInfo = *dataObjInfoHead;
         }
-        if ( verifyFlag > 0 && strlen( tmpDataObjInfo->chksum ) > 0 ) {
+
+        /* need to compute the chksum */
+        if ( verifyFlag && strlen( tmpDataObjInfo->chksum ) > 0 ) {
             status = verifyDatObjChksum( rsComm, tmpDataObjInfo,
                                          outChksumStr );
+            if (status == 0 && shouldVerifyVaultSizeEqualsDatabaseSize) {
+                if (int code = verifyVaultSizeEqualsDatabaseSize(rsComm, tmpDataObjInfo)) {
+                    status = code;
+                }
+            }
         }
         else {
-            addKeyVal( &tmpDataObjInfo->condInput, ORIG_CHKSUM_KW, inp_chksum );
+            addKeyVal( &tmpDataObjInfo->condInput, ORIG_CHKSUM_KW, getValByKey( &dataObjInp->condInput, ORIG_CHKSUM_KW ) );
             status = dataObjChksumAndRegInfo( rsComm, tmpDataObjInfo, outChksumStr );
         }
-
-        return status;
-
-    }
-
-    /* allFlag == 1 */
-    tmpDataObjInfo = *dataObjInfoHead;
-    while ( tmpDataObjInfo != NULL ) {
-        char *tmpChksumStr = 0;
-        //JMC - legacy resource :: int rescClass = getRescClass (tmpDataObjInfo->rescInfo);
-        std::string resc_class;
-        irods::error err = irods::get_resource_property< std::string >(
-                               tmpDataObjInfo->rescId,
-                               irods::RESOURCE_CLASS,
-                               resc_class );
-        if ( !err.ok() ) {
-            irods::log( PASSMSG( "failed in get_resource_property [class]", err ) );
-        }
-
-        if ( resc_class == irods::RESOURCE_CLASS_BUNDLE ) { // (rescClass == BUNDLE_CL) {
-            /* don't do BUNDLE_CL. should be done on the bundle file */
-            tmpDataObjInfo = tmpDataObjInfo->next;
-            status = 0;
-            continue;
-        }
-        if ( strlen( tmpDataObjInfo->chksum ) == 0 ) {
-            /* need to chksum no matter what */
-            status = dataObjChksumAndRegInfo( rsComm, tmpDataObjInfo,
-                                              &tmpChksumStr );
-        }
-        else if ( verifyFlag > 0 ) {
-            status = verifyDatObjChksum( rsComm, tmpDataObjInfo,
-                                         &tmpChksumStr );
-        }
-        else if ( forceFlag > 0 ) {
-            status = dataObjChksumAndRegInfo( rsComm, tmpDataObjInfo,
-                                              &tmpChksumStr );
-        }
-        else {
-            tmpChksumStr = strdup( tmpDataObjInfo->chksum );
-            status = 0;
-        }
-
-        if ( status < 0 ) {
-            return status;
-        }
-        if ( tmpDataObjInfo->replStatus > 0 && *outChksumStr == NULL ) {
-            *outChksumStr = tmpChksumStr;
-        }
-        else {
-            /* save it */
-            if ( strlen( tmpDataObjInfo->chksum ) == 0 ) {
-                rstrcpy( tmpDataObjInfo->chksum, tmpChksumStr, NAME_LEN );
+    } else {
+        dataObjInfo_t *tmpDataObjInfo = *dataObjInfoHead;
+        int verifyStatus = 0;
+        do {
+            //JMC - legacy resource :: int rescClass = getRescClass (tmpDataObjInfo->rescInfo);
+            std::string resc_class;
+            irods::error err = irods::get_resource_property< std::string >(
+                                tmpDataObjInfo->rescId,
+                                irods::RESOURCE_CLASS,
+                                resc_class );
+            if ( !err.ok() ) {
+                irods::log( PASSMSG( "failed in get_resource_property [class]", err ) );
             }
-            free( tmpChksumStr );
+            if ( resc_class == irods::RESOURCE_CLASS_BUNDLE ) { // (rescClass == BUNDLE_CL) {
+                /* don't do BUNDLE_CL. should be done on the bundle file */
+                tmpDataObjInfo = tmpDataObjInfo->next;
+                status = 0;
+                continue;
+            }
+
+            char *tmpChksumStr = 0;
+            if ( strlen( tmpDataObjInfo->chksum ) == 0 ) {
+                /* need to chksum no matter what */
+                status = dataObjChksumAndRegInfo( rsComm, tmpDataObjInfo,
+                                                &tmpChksumStr );
+            }
+            else if ( verifyFlag ) {
+                if ( int code = verifyDatObjChksum( rsComm, tmpDataObjInfo, &tmpChksumStr ) ) {
+                    verifyStatus = code;
+                }
+                if (verifyStatus == 0 && shouldVerifyVaultSizeEqualsDatabaseSize) {
+                    if (int code = verifyVaultSizeEqualsDatabaseSize(rsComm, tmpDataObjInfo)) {
+                        verifyStatus = code;
+                    }
+                }
+            }
+            else if ( forceFlag ) {
+                status = dataObjChksumAndRegInfo( rsComm, tmpDataObjInfo,
+                                                &tmpChksumStr );
+            }
+            else {
+                tmpChksumStr = strdup( tmpDataObjInfo->chksum );
+                status = 0;
+            }
+
+            if ( status < 0 ) {
+                return status;
+            }
+            if ( tmpDataObjInfo->replStatus > 0 && *outChksumStr == NULL ) {
+                *outChksumStr = tmpChksumStr;
+            }
+            else {
+                /* save it */
+                if ( strlen( tmpDataObjInfo->chksum ) == 0 ) {
+                    rstrcpy( tmpDataObjInfo->chksum, tmpChksumStr, NAME_LEN );
+                }
+                free( tmpChksumStr );
+            }
+        } while ( (tmpDataObjInfo = tmpDataObjInfo->next) );
+        if ( *outChksumStr == NULL ) {
+            *outChksumStr = strdup( ( *dataObjInfoHead )->chksum );
         }
-        tmpDataObjInfo = tmpDataObjInfo->next;
-    }
-    if ( *outChksumStr == NULL ) {
-        *outChksumStr = strdup( ( *dataObjInfoHead )->chksum );
+        if (status >= 0 && verifyStatus < 0) {
+            status = verifyStatus;
+        }
     }
 
     return status;
@@ -266,9 +299,10 @@ verifyDatObjChksum( rsComm_t *rsComm, dataObjInfo_t *dataObjInfo,
     }
 
     if ( strcmp( *outChksumStr, dataObjInfo->chksum ) != 0 ) {
-        rodsLog( LOG_ERROR,
-                 "verifyDatObjChksum: computed chksum %s != icat value %s for %s",
-                 *outChksumStr, dataObjInfo->chksum, dataObjInfo->objPath );
+        std::stringstream error_message;
+        error_message << "verifyDatObjChksum: computed chksum [" << *outChksumStr << "] != icat value [" << dataObjInfo->chksum << "] for [" << dataObjInfo->objPath << "] hierarchy [" << dataObjInfo->rescHier << "] replNum [" << dataObjInfo->replNum << "]";
+        rodsLog( LOG_ERROR, "%s", error_message.str().c_str());
+        addRErrorMsg(&rsComm->rError, USER_CHKSUM_MISMATCH, error_message.str().c_str());
         return USER_CHKSUM_MISMATCH;
     }
     else {

@@ -191,8 +191,8 @@ irods::error load_balanced_file_open(
 /// @brief interface for POSIX Read
 irods::error load_balanced_file_read(
     irods::plugin_context& _ctx,
-    void*                               _buf,
-    int                                 _len ) {
+    void*                  _buf,
+    const int              _len ) {
     irods::error result = SUCCESS();
 
     // =-=-=-=-=-=-=-
@@ -203,7 +203,7 @@ irods::error load_balanced_file_read(
 
         // =-=-=-=-=-=-=-
         // call read on the child
-        err = resc->call< void*, int >( _ctx.comm(), irods::RESOURCE_OP_READ, _ctx.fco(), _buf, _len );
+        err = resc->call< void*, const int >( _ctx.comm(), irods::RESOURCE_OP_READ, _ctx.fco(), _buf, _len );
         result = ASSERT_PASS( err, "Failed calling operation on child resource." );
     }
 
@@ -215,8 +215,8 @@ irods::error load_balanced_file_read(
 /// @brief interface for POSIX Write
 irods::error load_balanced_file_write(
     irods::plugin_context& _ctx,
-    void*                               _buf,
-    int                                 _len ) {
+    const void*            _buf,
+    const int              _len ) {
     irods::error result = SUCCESS();
 
     // =-=-=-=-=-=-=-
@@ -227,7 +227,7 @@ irods::error load_balanced_file_write(
 
         // =-=-=-=-=-=-=-
         // call write on the child
-        err = resc->call< void*, int >( _ctx.comm(), irods::RESOURCE_OP_WRITE, _ctx.fco(), _buf, _len );
+        err = resc->call< const void*, const int >( _ctx.comm(), irods::RESOURCE_OP_WRITE, _ctx.fco(), _buf, _len );
         result = ASSERT_PASS( err, "Failed calling operation on child resource." );
     }
 
@@ -302,8 +302,8 @@ irods::error load_balanced_file_stat(
 /// @brief interface for POSIX lseek
 irods::error load_balanced_file_lseek(
     irods::plugin_context& _ctx,
-    long long                        _offset,
-    int                              _whence ) {
+    const long long        _offset,
+    const int              _whence ) {
     irods::error result = SUCCESS();
 
     // =-=-=-=-=-=-=-
@@ -314,7 +314,7 @@ irods::error load_balanced_file_lseek(
 
         // =-=-=-=-=-=-=-
         // call lseek on the child
-        err = resc->call< long long, int >( _ctx.comm(), irods::RESOURCE_OP_LSEEK, _ctx.fco(), _offset, _whence );
+        err = resc->call< const long long, const int >( _ctx.comm(), irods::RESOURCE_OP_LSEEK, _ctx.fco(), _offset, _whence );
         result = ASSERT_PASS( err, "Failed calling child operation." );
     }
 
@@ -908,60 +908,54 @@ irods::error load_balanced_file_resolve_hierarchy(
     const std::string*              _curr_host,
     irods::hierarchy_parser*        _out_parser,
     float*                          _out_vote ) {
-    irods::error result = SUCCESS();
 
     // =-=-=-=-=-=-=-
     // check incoming parameters
-    irods::error err = load_balanced_check_params< irods::file_object >( _ctx );
-    if ( ( result = ASSERT_PASS( err, "Invalid resource context." ) ).ok() ) {
-        if ( ( result = ASSERT_ERROR( _opr && _curr_host && _out_parser && _out_vote, SYS_INVALID_INPUT_PARAM,
-                                      "Invalid parameters." ) ).ok() ) {
-            // =-=-=-=-=-=-=-
-            // get the object's hier string
-            irods::file_object_ptr file_obj = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-            std::string hier = file_obj->resc_hier( );
-
-            // =-=-=-=-=-=-=-
-            // get the object's hier string
-            std::string name;
-            err = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, name );
-            if ( ( result = ASSERT_PASS( err, "Failed to get property: \"%s\".", irods::RESOURCE_NAME.c_str() ) ).ok() ) {
-
-                // =-=-=-=-=-=-=-
-                // add ourselves into the hierarch before calling child resources
-                _out_parser->add_child( name );
-
-                // =-=-=-=-=-=-=-
-                // test the operation to determine which choices to make
-                if ( irods::OPEN_OPERATION   == ( *_opr )  ||
-                        irods::WRITE_OPERATION  == ( *_opr ) ||
-                        irods::UNLINK_OPERATION == ( *_opr )) {
-                    std::string err_msg = "failed in resolve hierarchy for [" + ( *_opr ) + "]";
-                    err = load_balanced_redirect_for_open_operation( _ctx, _opr, _curr_host, _out_parser, _out_vote );
-                    result = ASSERT_PASS( err, err_msg );
-
-                }
-                else if ( irods::CREATE_OPERATION == ( *_opr ) ) {
-
-                    // =-=-=-=-=-=-=-
-                    // get the next_child resource for create
-                    irods::resource_ptr resc;
-                    std::string err_msg = "failed in resolve hierarchy for [" + ( *_opr ) + "]";
-                    err = load_balanced_redirect_for_create_operation( _ctx, _opr, _curr_host, _out_parser, _out_vote );
-                    result = ASSERT_PASS( err, err_msg );
-                }
-                else {
-
-                    // =-=-=-=-=-=-=-
-                    // must have been passed a bad operation
-                    result = ASSERT_ERROR( false, INVALID_OPERATION, "Operation not supported: \"%s\".",
-                                           _opr->c_str() );
-                }
-            }
-        }
+    irods::error ret = load_balanced_check_params< irods::file_object >( _ctx );
+    if ( !ret.ok() ) {
+        return PASSMSG( "Invalid resource context.", ret );
     }
 
-    return result;
+    if ( NULL == _opr || NULL == _curr_host || NULL == _out_parser || NULL == _out_vote ) {
+        return ERROR( SYS_INVALID_INPUT_PARAM, "Invalid parameters." );
+    }
+
+    // =-=-=-=-=-=-=-
+    // get the name of this resource
+    std::string name;
+    ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, name );
+    if ( !ret.ok() ) {
+        return PASSMSG( std::string( "Failed to get property: \"" + irods::RESOURCE_NAME + "\"." ), ret );
+    }
+
+    // =-=-=-=-=-=-=-
+    // add ourselves into the hierarchy before calling child resources
+    _out_parser->add_child( name );
+
+    // =-=-=-=-=-=-=-
+    // test the operation to determine which choices to make
+    if ( irods::OPEN_OPERATION   == ( *_opr )  ||
+         irods::WRITE_OPERATION  == ( *_opr ) ||
+         irods::UNLINK_OPERATION == ( *_opr ) ) {
+        ret = load_balanced_redirect_for_open_operation( _ctx, _opr, _curr_host, _out_parser, _out_vote );
+        if ( !ret.ok() ) {
+            ret = PASSMSG( std::string( "failed in resolve hierarchy for [" + ( *_opr ) + "]" ), ret );
+        }
+    }
+    else if( irods::CREATE_OPERATION == ( *_opr ) ) {
+        ret = load_balanced_redirect_for_create_operation( _ctx, _opr, _curr_host, _out_parser, _out_vote );
+        if ( !ret.ok() ) {
+            ret = PASSMSG( std::string( "failed in resolve hierarchy for [" + ( *_opr ) + "]" ), ret );
+        }
+    }
+    else {
+        // =-=-=-=-=-=-=-
+        // must have been passed a bad operation
+        ret = ERROR( INVALID_OPERATION, std::string( "Operation not supported: \"" + ( *_opr ) + "\"." ) );
+    }
+
+    return ret;
+
 } // load_balanced_file_resolve_hierarchy
 
 // =-=-=-=-=-=-=-
@@ -1079,15 +1073,15 @@ irods::resource* plugin_factory( const std::string& _inst_name,
         function<error(plugin_context&)>(
             load_balanced_file_open ) );
 
-    resc->add_operation<void*,int>(
+    resc->add_operation<void*,const int>(
         irods::RESOURCE_OP_READ,
         std::function<
-            error(irods::plugin_context&,void*,int)>(
+            error(irods::plugin_context&,void*,const int)>(
                 load_balanced_file_read ) );
 
-    resc->add_operation<void*,int>(
+    resc->add_operation<const void*,const int>(
         irods::RESOURCE_OP_WRITE,
-        function<error(plugin_context&,void*,int)>(
+        function<error(plugin_context&,const void*,const int)>(
             load_balanced_file_write ) );
 
     resc->add_operation(
@@ -1130,9 +1124,9 @@ irods::resource* plugin_factory( const std::string& _inst_name,
         function<error(plugin_context&)>(
             load_balanced_file_getfs_freespace ) );
 
-    resc->add_operation<long long, int>(
+    resc->add_operation<const long long, const int>(
         irods::RESOURCE_OP_LSEEK,
-        function<error(plugin_context&, long long, int)>(
+        function<error(plugin_context&, const long long, const int)>(
             load_balanced_file_lseek ) );
 
     resc->add_operation(

@@ -41,28 +41,10 @@ regUtil( rcComm_t *conn, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs,
             return ret;
         }
         int status = 0;
-        if ( myRodsArgs->collection == False && myRodsArgs->checksum == True ) {
-            rodsEnv env;
-            int ret = getRodsEnv( &env );
-            if ( ret < 0 ) {
-                rodsLogError(
-                    LOG_ERROR,
-                    ret,
-                    "regUtil: getRodsEnv failed" );
-                return ret;
-            }
-            status = rcChksumLocFile( srcPath->outPath,
-                                      REG_CHKSUM_KW,
-                                      &dataObjOprInp.condInput,
-                                      env.rodsDefaultHashScheme );
-            if ( status < 0 ) {
-                rodsLogError( LOG_ERROR, status,
-                              "regUtil: rcChksumLocFile error for %s, status = %d",
-                              srcPath, status );
-                return status;
-            }
+        if ( myRodsArgs->checksum == True ) {
+            addKeyVal( &dataObjOprInp.condInput, REG_CHKSUM_KW, "" );
         }
-        else if ( myRodsArgs->collection == False && myRodsArgs->verifyChecksum == True ) {
+        else if ( myRodsArgs->verifyChecksum == True ) {
             addKeyVal( &dataObjOprInp.condInput, VERIFY_CHKSUM_KW, "" );
         }
 
