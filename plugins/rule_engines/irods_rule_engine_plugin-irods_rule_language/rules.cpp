@@ -50,10 +50,12 @@ int readRuleSetFromLocalFile( const char *ruleBaseName, const char *rulesFileNam
         return ret;
     }
 
-    Node *errnode;
+    Node *errnode{};
     ExprType *restype = typeRuleSet( ruleSet, errmsg, &errnode, r );
     if ( getNodeType( restype ) == T_ERROR ) {
-        *errloc = NODE_EXPR_POS( errnode );
+        if ( NULL != errnode ) {
+            *errloc = NODE_EXPR_POS( errnode );
+        }
         return RE_TYPE_ERROR;
     }
 
@@ -129,10 +131,14 @@ int parseAndComputeRuleAdapter( char *rule, msParamArray_t *msParamArray, ruleEx
     rei->msParamArray = msParamArray;
 
     rescode = parseAndComputeRule( rule, env, rei, reiSaveFlag, &errmsgBuf, r );
-
-    convertEnvToMsParamArray( rei->msParamArray, env, &errmsgBuf, r );
-
     RE_ERROR( rescode < 0 );
+
+    if ( NULL == rei->msParamArray ) {
+        rei->msParamArray = newMsParamArray();
+    }
+    rescode = convertEnvToMsParamArray( rei->msParamArray, env, &errmsgBuf, r );
+    RE_ERROR( rescode < 0 );
+
     freeRErrorContent( &errmsgBuf );
     /* deleteEnv(env, 3); */
 
