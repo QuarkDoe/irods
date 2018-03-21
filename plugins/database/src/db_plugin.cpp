@@ -9814,31 +9814,23 @@ irods::error db_mod_avu_metadata_op(
 
     }
 
-    // =-=-=-=-=-=-=-
-    // get a postgres object from the context
-    /*irods::postgres_object_ptr pg;
-    ret = make_db_ptr( _ctx.fco(), pg );
-    if ( !ret.ok() ) {
-        return PASS( ret );
-
-    }*/
-
-    // =-=-=-=-=-=-=-
-    // extract the icss property
-//        icatSessionStruct icss;
-//        _ctx.prop_map().get< icatSessionStruct >( ICSS_PROP, icss );
     int status, atype;
-    char myUnits[MAX_NAME_LEN] = "";
+    const char *dummy = NULL;
+    const char *myUnits = "";
     const char *addAttr = "";
     const char *addValue = "";
-    const char  *addUnits = "";
-    int newUnits = 0;
-    if ( _unitsOrArg0 == NULL || *_unitsOrArg0 == '\0' ) {
+    const char  *addUnits = NULL;
+
+    if ( _unitsOrArg0 == NULL ) {
         return ERROR( CAT_INVALID_ARGUMENT, "unitsOrArg0 empty or null" );
     }
+
     atype = checkModArgType( _unitsOrArg0 );
     if ( atype == 0 ) {
-        snprintf( myUnits, sizeof( myUnits ), "%s", _unitsOrArg0 );
+        myUnits = _unitsOrArg0;
+    }
+    else {
+        dummy = _unitsOrArg0;
     }
 
     status = chlDeleteAVUMetadata( _ctx.comm(), 0, _type, _name, _attribute, _value,
@@ -9848,53 +9840,46 @@ irods::error db_mod_avu_metadata_op(
         return ERROR( status, "delete avu metadata failed" );
     }
 
-    if ( atype == 1 ) {
-        addAttr = _unitsOrArg0 + 2;
-    }
-    if ( atype == 2 ) {
-        addValue = _unitsOrArg0 + 2;
-    }
-    if ( atype == 3 ) {
-        addUnits = _unitsOrArg0 + 2;
-    }
+    bool new_attr_set = false;
+    bool new_val_set = false;
+    bool new_unit_set = false;
 
-    atype = checkModArgType( _arg1 );
-    if ( atype == 1 ) {
-        addAttr = _arg1 + 2;
-    }
-    if ( atype == 2 ) {
-        addValue = _arg1 + 2;
-    }
-    if ( atype == 3 ) {
-        addUnits = _arg1 + 2;
-    }
-
-    atype = checkModArgType( _arg2 );
-    if ( atype == 1 ) {
-        addAttr = _arg2 + 2;
-    }
-    if ( atype == 2 ) {
-        addValue = _arg2 + 2;
-    }
-    if ( atype == 3 ) {
-        addUnits = _arg2 + 2;
-    }
-
-    atype = checkModArgType( _arg3 );
-    if ( atype == 1 ) {
-        addAttr = _arg3 + 2;
-    }
-    if ( atype == 2 ) {
-        addValue = _arg3 + 2;
-    }
-    if ( atype == 3 ) {
-        addUnits = _arg3 + 2;
-        newUnits = 1;
+    for (auto arg : { dummy , _arg1, _arg2, _arg3 } )
+    {
+      if (arg == NULL) continue;
+      atype = checkModArgType( arg );
+      if ( atype == 1 ) {
+        if (new_attr_set) {
+            _rollback( "chlModAVUMetadata" );
+            return ERROR( CAT_INVALID_ARGUMENT, "new attribute specified more than once" );
+        } else {
+            new_attr_set = true;
+        }
+        addAttr = arg + 2;
+      }
+      if ( atype == 2 ) {
+        if (new_val_set) {
+            _rollback( "chlModAVUMetadata" );
+            return ERROR( CAT_INVALID_ARGUMENT, "new value specified more than once" );
+        } else {
+            new_val_set = true;
+        }
+        addValue = arg + 2;
+      }
+      if ( atype == 3 ) {
+        if (new_unit_set) {
+            _rollback( "chlModAVUMetadata" );
+            return ERROR( CAT_INVALID_ARGUMENT, "new unit specified more than once" );
+        } else {
+            new_unit_set = true;
+        }
+        addUnits = arg + 2;
+      }
     }
 
     if ( *addAttr  == '\0' &&
             *addValue == '\0' &&
-            *addUnits == '\0' ) {
+            addUnits == NULL ) {
         _rollback( "chlModAVUMetadata" );
         return ERROR( CAT_INVALID_ARGUMENT, "arg check failed" );
     }
@@ -9905,7 +9890,7 @@ irods::error db_mod_avu_metadata_op(
     if ( *addValue == '\0' ) {
         addValue = _value;
     }
-    if ( *addUnits == '\0' && newUnits == 0 ) {
+    if ( addUnits == NULL ) {
         addUnits = myUnits;
     }
 

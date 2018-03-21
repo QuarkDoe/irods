@@ -11,6 +11,7 @@ import optparse
 import os
 import subprocess
 import sys
+import fnmatch
 
 if sys.version_info < (2, 7):
     import unittest2 as unittest
@@ -55,10 +56,51 @@ def optparse_callback_federation(option, opt_str, value, parser):
     if irods.test.settings.FEDERATION.REMOTE_IRODS_VERSION < (4,2):
         irods.test.settings.FEDERATION.REMOTE_VAULT = '/var/lib/irods/iRODS/Vault'
 
-def run_tests_from_names(names, buffer_test_output, xml_output):
+def add_class_path_prefix(name):
+    return "irods.test." + name
+
+def run_tests_from_names(names, buffer_test_output, xml_output, skipUntil):
     loader = unittest.TestLoader()
-    suites = [loader.loadTestsFromName('irods.test.' + name) for name in names] # test files used to be standalone python packages, now that they are in the irods python module, they cannot be loaded directly, but must be loaded with the full module path
-    super_suite = unittest.TestSuite(suites)
+    suites = [loader.loadTestsFromName(add_class_path_prefix(name)) for name in names] # test files used to be standalone python packages, now that they are in the irods python module, they cannot be loaded directly, but must be loaded with the full module path
+
+    if skipUntil == None:
+        markers = [["",""]]
+    else:
+        markers = map(lambda x: map(lambda y : y.strip(), x.split("-")), skipUntil.split(","))
+
+    for marker in markers:
+        for i in range(0, len(marker)):
+            if marker[i] != "":
+                marker[i] = add_class_path_prefix(marker[i])
+
+    if skipUntil != None:
+        for marker in markers:
+            if len(marker) == 1:
+                print(marker[0])
+            else:
+                print(marker[0], "-", marker[1])
+
+    # simulate nonlocal in python 2.x
+    d = { "filtered_markers" : filter(lambda marker: marker[0] == "", markers) }
+
+    suitelist = []
+    def filter_testcase(suite, marker):
+        return fnmatch.fnmatch(suite.id(), marker)
+
+    def filter_testsuite(suite):
+        if isinstance(suite, unittest.TestCase):
+            if len(d["filtered_markers"]) == 0:
+                d["filtered_markers"] = filter(lambda marker: filter_testcase(suite, marker[0]), markers)
+            if len(d["filtered_markers"]) != 0:
+                suitelist.append(suite)
+                d["filtered_markers"] = filter(lambda marker: marker[-1] == "" or not filter_testcase(suite, marker[-1]), d["filtered_markers"])
+        else:
+            for subsuite in suite:
+                filter_testsuite(subsuite)
+
+    filter_testsuite(suites)
+    super_suite = unittest.TestSuite(suitelist)
+
     if xml_output:
         import xmlrunner
         runner = xmlrunner.XMLTestRunner(output='test-reports', verbosity=2)
@@ -86,6 +128,7 @@ if __name__ == '__main__':
 
     parser = optparse.OptionParser()
     parser.add_option('--run_specific_test', metavar='dotted name')
+    parser.add_option('--skip_until', action="store")
     parser.add_option('--run_python_suite', action='store_true')
     parser.add_option('--include_auth_tests', action='store_true')
     parser.add_option('--run_devtesty', action='store_true')
@@ -111,9 +154,9 @@ if __name__ == '__main__':
                                  'test_resource_tree', 'test_load_balanced_suite', 'test_icommands_file_operations', 'test_imeta_set',
                                  'test_all_rules', 'test_iscan', 'test_ichmod', 'test_iput_options', 'test_ireg', 'test_irsync',
                                  'test_iticket', 'test_irodsctl', 'test_resource_configuration', 'test_control_plane',
-                                 'test_native_rule_engine_plugin', 'test_quotas', 'test_ils', 'test_irmdir', 'test_ichksum', 'test_iquest', 'test_imeta_help'])
+                                 'test_native_rule_engine_plugin', 'test_quotas', 'test_ils', 'test_irmdir', 'test_ichksum', 'test_iquest', 'test_imeta_help', 'test_irepl'])
 
-    results = run_tests_from_names(test_identifiers, options.buffer_test_output, options.xml_output)
+    results = run_tests_from_names(test_identifiers, options.buffer_test_output, options.xml_output, options.skip_until)
     print(results)
     if not results.wasSuccessful():
         sys.exit(1)

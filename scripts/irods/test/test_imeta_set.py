@@ -28,8 +28,16 @@ class Test_ImetaSet(ResourceBase, unittest.TestCase):
 
         super(Test_ImetaSet, self).tearDown()
 
-    def mod_avu(self, user_name, a, v, u, newv):
+    def mod_avu_value(self, user_name, a, v, u, newv):
         self.admin.assert_icommand('imeta mod -u %s %s %s %s v:%s' % (user_name, a, v, u, newv))
+
+    def mod_avu_attr(self, user_name, a, v, u, newa):
+        self.admin.assert_icommand('imeta mod -u %s %s %s %s n:%s' % (user_name, a, v, u, newa))
+
+    def mod_avu_unit(self, user_name, a, v, u, newu):
+        self.admin.assert_icommand('imeta mod -u %s %s %s %s u:%s' % (user_name, a, v, u, newu))
+
+
 
     def set_avu(self, user_name, a, v, u):
         self.admin.assert_icommand('imeta set -u %s %s %s %s' % (user_name, a, v, u))
@@ -51,6 +59,20 @@ class Test_ImetaSet(ResourceBase, unittest.TestCase):
                                                                                               'units: ' + u + '$'],
                                    use_regex=True)
 
+    def check_avu_data_obj(self, data_obj_name, a, v, u):
+        # If setting unit to empty string then ls output should be blank
+        if u == '""':
+            u = ''
+
+        a = re.escape(a)
+        v = re.escape(v)
+        u = re.escape(u)
+
+        self.admin.assert_icommand('imeta ls -d %s %s' % (data_obj_name, a), 'STDOUT_MULTILINE', ['attribute: ' + a + '$',
+                                                                                              'value: ' + v + '$',
+                                                                                              'units: ' + u + '$'],
+                                   use_regex=True)
+
     def set_and_check_avu(self, user_name, a, v, u):
         self.set_avu(user_name, a, v, u)
         self.check_avu(user_name, a, v, u)
@@ -59,16 +81,38 @@ class Test_ImetaSet(ResourceBase, unittest.TestCase):
         self.add_avu(user_name, a, v, u)
         self.check_avu(user_name, a, v, u)
 
-    def mod_and_check_avu(self, user_name, a, v, u, newv):
-        self.mod_avu(user_name, a, v, u, newv)
+    def mod_and_check_avu_value(self, user_name, a, v, u, newv):
+        self.mod_avu_value(user_name, a, v, u, newv)
         self.check_avu(user_name, a, newv, u)
+        
+    def mod_and_check_avu_attr(self, user_name, a, v, u, newa):
+        self.mod_avu_attr(user_name, a, v, u, newa)
+        self.check_avu(user_name, newa, v, u)
+
+    def mod_and_check_avu_unit(self, user_name, a, v, u, newu):
+        self.mod_avu_unit(user_name, a, v, u, newu)
+        self.check_avu(user_name, a, v, newu)
+
+    def test_imeta_mod_attr_3667(self, user=None):
+        if user is None:
+            user = self.user0.username
+
+        self.set_and_check_avu(user, 'att0', 'val0', 'unt0')
+        self.mod_and_check_avu_attr(user, 'att0', 'val0', 'unt0', 'newattr')
+
+    def test_imeta_mod_units_3667(self, user=None):
+        if user is None:
+            user = self.user0.username
+
+        self.set_and_check_avu(user, 'att0', 'val0', 'unt0')
+        self.mod_and_check_avu_unit(user, 'att0', 'val0', 'unt0', 'newunit')
 
     def test_imeta_set_and_mod_single_object_triple(self, user=None):
         if user is None:
             user = self.user0.username
 
         self.set_and_check_avu(user, 'att0', 'val0', 'unt0')
-        self.mod_and_check_avu(user, 'att0', 'val0', 'unt0', 'val5')
+        self.mod_and_check_avu_value(user, 'att0', 'val0', 'unt0', 'val5')
 
     def test_imeta_set_single_object_triple(self, user=None):
         if user is None:
@@ -231,6 +275,59 @@ class Test_ImetaSet(ResourceBase, unittest.TestCase):
         wild = self.user0.session_collection+'/'+base_name+"%"
         self.admin.assert_icommand(['imeta', 'addw', '-d', wild, attribute, value], 'STDERR_SINGLELINE', 'CAT_NO_ACCESS_PERMISSION')
 
+    def test_imeta_duplicate_attr_3787(self):
+        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a1', 'v1', 'u1'])
+        self.admin.assert_icommand(['imeta', 'mod', '-d', self.testfile, 'a1', 'v1', 'u1', 'n:a2', 'v:v2', 'u:'])
+        self.admin.assert_icommand(['imeta', 'mod', '-d', self.testfile, 'a2', 'v2',       'n:a3', 'v:v3', 'u:u3'])
+        self.check_avu_data_obj(self.testfile, 'a3', 'v3', 'u3')
+
+    def test_imeta_duplicate_attr_3788(self):
+        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a', 'v', 'u'])
+        self.admin.assert_icommand('imeta mod -d ' + self.testfile + 'a v u n:newa1 n:newa2', 'STDOUT_SINGLELINE', 'Error: New attribute specified more than once')
+        self.check_avu_data_obj(self.testfile, 'a', 'v', 'u')
+
+    def test_imeta_duplicate_value_3788(self):
+        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a', 'v', 'u'])
+        self.admin.assert_icommand('imeta mod -d ' + self.testfile + 'a v u v:newa1 v:newa2', 'STDOUT_SINGLELINE', 'Error: New value specified more than once')
+        self.check_avu_data_obj(self.testfile, 'a', 'v', 'u')
+
+    def test_imeta_duplicate_unit_3788(self):
+        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a', 'v', 'u'])
+        self.admin.assert_icommand('imeta mod -d ' + self.testfile + 'a v u u:newa1 u:newa2', 'STDOUT_SINGLELINE', 'Error: New unit specified more than once')
+        self.check_avu_data_obj(self.testfile, 'a', 'v', 'u')
+
+    def test_imeta_add_missing_value_27(self):
+        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to add$', '$'],
+                                   use_regex=True)
+
+    def test_imeta_rmi_missing_obj_type_27(self):
+        self.admin.assert_icommand(['imeta', 'rmi', '-d'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to rmi$', '$'],
+                                   use_regex=True)
+
+    def test_imeta_rmi_missing_metadata_id_27(self):
+        self.admin.assert_icommand(['imeta', 'rmi', '-d', self.testfile], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to rmi$', '$'],
+                                   use_regex=True)
+
+    def test_imeta_mod_missing_opt1_27(self):
+        self.admin.assert_icommand(['imeta', 'mod', '-d', self.testfile, 'a', 'v'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to mod$', '$'],
+                                   use_regex=True)
+
+    def test_imeta_set_missing_value_27(self):
+        self.admin.assert_icommand(['imeta', 'set', '-d', self.testfile, 'a'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to set$', '$'],
+                                   use_regex=True)
+
+    def test_imeta_ls_missing_obj_name_27(self):
+        self.admin.assert_icommand(['imeta', 'ls', '-d'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to ls$', '$'],
+                                   use_regex=True)
+
+    def test_imeta_qu_missing_value_27(self):
+        self.admin.assert_icommand(['imeta', 'qu', '-d', 'a', '='], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to qu$', '$'],
+                                   use_regex=True)
+
+    def test_imeta_cp_missing_obj_name_27(self):
+        self.admin.assert_icommand(['imeta', 'cp', '-d', '-d', self.testfile], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to cp$', '$'],
+                                   use_regex=True)
+
 class Test_ImetaQu(ResourceBase, unittest.TestCase):
 
     def helper_imeta_qu_comparison_2748(self, irods_object_option_flag):
@@ -273,3 +370,34 @@ class Test_ImetaQu(ResourceBase, unittest.TestCase):
         self.assertEqual(split_output[1], self.admin.session_collection, out)
         self.assertEqual(split_output[2], 'dataObj:', out)
         self.assertEqual(split_output[3], 'testfile.txt', out)
+
+    def test_imeta_qu_resource_too_man_args_496(self):
+        self.admin.assert_icommand(['imeta', 'qu', '-R', 'target', '=', '1', 'and', 'study', '=', '4616'], 'STDOUT_MULTILINE', 
+                ['$', 'Error: Too many arguments provided to imeta qu for the -R option.  Only one KVP pair allowed in search.$', '$'],
+                use_regex=True)
+
+    def test_imeta_qu_user_too_man_args_496(self):
+        self.admin.assert_icommand(['imeta', 'qu', '-u', 'target', '=', '1', 'and', 'study', '=', '4616'], 'STDOUT_MULTILINE', 
+                ['$', 'Error: Too many arguments provided to imeta qu for the -u option.  Only one KVP pair allowed in search.$', '$'],
+                use_regex=True)
+
+    def test_imeta_qu_dataobj_more_than_3_comparisons_3594(self):
+        object_name = 'data_obj_3594'
+        self.admin.assert_icommand(['iput', self.testfile, object_name])
+        self.admin.assert_icommand(['imeta', 'add', '-d', object_name, 'target', '1'])
+        self.admin.assert_icommand(['imeta', 'add', '-d', object_name, 'study_id', '4616'])
+        self.admin.assert_icommand(['imeta', 'add', '-d', object_name, 'type', 'fastq'])
+        self.admin.assert_icommand(['imeta', 'qu', '-d', 'target', '=', '1', 'and', 'study_id', '=', '4616', 'and', 'type', '=', 'fastq'],
+                'STDOUT_MULTILINE', ['collection: .*$', 'dataObj: %s$' % object_name],
+                use_regex=True)
+
+    def test_imeta_qu_collection_more_than_3_comparisons_3594(self):
+        object_name = 'collection_3594'
+        self.admin.assert_icommand(['imkdir', object_name])
+        self.admin.assert_icommand(['imeta', 'add', '-C', object_name, 'target', '1'])
+        self.admin.assert_icommand(['imeta', 'add', '-C', object_name, 'study_id', '4616'])
+        self.admin.assert_icommand(['imeta', 'add', '-C', object_name, 'type', 'fastq'])
+        self.admin.assert_icommand(['imeta', 'qu', '-C', 'target', '=', '1', 'and', 'study_id', '=', '4616', 'and', 'type', '=', 'fastq'],
+                'STDOUT_MULTILINE', ['collection: .*%s$' % object_name],
+                use_regex=True)
+

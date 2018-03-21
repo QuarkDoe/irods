@@ -411,6 +411,7 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
   ${OPENSSL_SSL_LIBRARY}
   ${OPENSSL_CRYPTO_LIBRARY}
+  ${CMAKE_THREAD_LIBS_INIT}
   )
 target_include_directories(
   irods_client
@@ -592,6 +593,7 @@ set(
   ${CMAKE_SOURCE_DIR}/server/core/src/irods_oracle_object.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/irods_physical_object.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/irods_postgres_object.cpp
+  ${CMAKE_SOURCE_DIR}/server/core/src/irods_generic_database_object.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/irods_resource_backport.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/irods_resource_manager.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/irods_resource_plugin.cpp
@@ -789,6 +791,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_auth_factory.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_auth_manager.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_auth_object.cpp
+  ${CMAKE_SOURCE_DIR}/lib/core/src/irods_generic_auth_object.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_gsi_object.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_krb_object.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_native_auth_object.cpp
@@ -991,6 +994,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_auth_factory.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_auth_manager.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_auth_object.cpp
+  ${CMAKE_SOURCE_DIR}/lib/core/src/irods_generic_auth_object.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_buffer_encryption.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_children_parser.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_c_api.cpp

@@ -32,6 +32,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_factory.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_manager.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_object.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/irods_generic_auth_object.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_plugin.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_types.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_buffer_encryption.hpp
@@ -459,6 +460,7 @@ set(
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_database_types.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_dynamic_cast.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_file_object.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/irods_generic_database_object.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_get_l1desc.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_mysql_object.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_oracle_object.hpp
