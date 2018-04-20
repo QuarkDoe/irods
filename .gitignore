@@ -2,3 +2,7 @@ tags
 .dir-locals.el
 .build
 .vscode
+.project
+.cproject
+*.swp
+*.pyc

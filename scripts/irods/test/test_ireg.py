@@ -138,25 +138,8 @@ class Test_Ireg(resource_suite.ResourceBase, unittest.TestCase):
         shutil.rmtree(local_dir)
 
     def test_ireg_irepl_coordinating_resource__issue_3517(self):
-        filename = 'test_ireg_irepl_coordinating_resource__issue_3517'
-        filename_2 = filename + '_2'
-        lib.make_file(filename, 1024, 'arbitrary')
-        lib.make_file(filename_2, 1024, 'arbitrary')
-        self.admin.assert_icommand(['ireg', '-Kk', '-R', 'demoResc', os.path.abspath(filename), self.admin.session_collection + '/' + filename]) 
-        # ireg --repl should fail if it targets a coordinating (i.e. non-leaf) resource
-        self.admin.assert_icommand_fail(['ireg', '-Kk', '--repl', '-R', 'r_resc', os.path.abspath(filename_2), self.admin.session_collection + '/' + filename], 'STDOUT_SINGLELINE', 'coordinating resource')
-        # ireg --repl should fail if it targets a coordinating (i.e. non-leaf) resource
-        self.admin.assert_icommand(['ireg', '-Kk', '--repl', '-R', 'r_resc', os.path.abspath(filename_2), self.admin.session_collection + '/' + filename], 'STDERR_SINGLELINE', 'USER_INVALID_RESC_INPUT')
-        # ireg --repl should succeed targeting a leaf resource
-        self.admin.assert_icommand(['ireg', '-Kk', '--repl', '-R', 'l_resc', os.path.abspath(filename_2), self.admin.session_collection + '/' + filename])
-        # ils is just for debug information
-        self.admin.assert_icommand(['ils', '-L', self.admin.session_collection], 'STDOUT_SINGLELINE')
-        # trim from l_resc so that resource can be deleted later
-        self.admin.assert_icommand(['itrim', '-n1', '-N1', self.admin.session_collection + '/' + filename], 'STDOUT_SINGLELINE', 'trimmed')
-        # ils is just for debug information
-        self.admin.assert_icommand(['ils', '-L', self.admin.session_collection], 'STDOUT_SINGLELINE')
-        os.system('rm -f ' + filename)
-        os.system('rm -f ' + filename_2)
+        # this test is no longer relevant due to issue 3844 - allowing voting for registration of replicas
+        pass
 
     def test_ireg_recursively_with_checksums__issue_3662(self):
         thedirname = 'ingestme'
@@ -175,4 +158,54 @@ class Test_Ireg(resource_suite.ResourceBase, unittest.TestCase):
         self.admin.assert_icommand('irm -rU {0}'.format(thedirname))
         # cleanup
         os.system('rm -rf {0}'.format(thedirname))
-        
+
+    def test_ireg_repl_invalid_collection__issue_3828(self):
+        cmd = 'ireg --repl -R demoResc /tmp/test_file /tempZone/home/invalid_collection_name'
+        self.admin.assert_icommand(cmd, 'STDERR', 'status = -814000 CAT_UNKNOWN_COLLECTION')
+
+    def test_ireg_silent_failure_on_invalid_perms__issue_3795(self):
+        # Create a directory to hold the test files.
+        # The name of the directory should keep it from colliding with other
+        # tests even if it is not removed.
+        src_dir = os.path.join(self.admin.local_session_dir, 'issue_3795_src_dir')
+        lib.make_dir_p(src_dir)
+
+        files = [] # Holds the full physical path of the files.
+        for i in range(5):
+            filename = 'file_' + str(i) + '.txt'
+            filename = os.path.join(src_dir, filename)
+            lib.make_file(filename, ord(os.urandom(1)) + 1) # Add 1 to avoid 0 sized file.
+            files.append(filename)
+
+        # The indices of the files we will be modifying.
+        error_file_idx = [2, 4]
+
+        # This will block iRODS from registering some of the files.
+        for i in error_file_idx:
+            lib.execute_command('chmod 000 {0}'.format(files[i]))
+
+        dst_dir = self.admin.home_collection + '/issue_3795_dst_dir'
+
+        # We expect two lines of errors to be printed out.
+        regex = '^.*Level [01]: dirPathReg: filePathReg failed for.*file_[{0}{1}].txt.*status = -510013$'.format(error_file_idx[0], error_file_idx[1])
+        self.admin.assert_icommand('ireg -CK {0} {1}'.format(src_dir, dst_dir), 'STDOUT_MULTILINE', use_regex=True, expected_results=regex)
+
+        # Update permissions so that files can be processed by iRODS
+        # and forcefully re-register the files. We should not receive any errors
+        # from these commands.
+        for i in error_file_idx:
+            lib.execute_command('chmod 664 {0}'.format(files[i]))
+        self.admin.assert_icommand('ireg -fCK {0} {1}'.format(src_dir, dst_dir))
+
+        # Remove the files from iRODS.
+        self.admin.assert_icommand('irm -rf {0}'.format(dst_dir))
+
+    def test_ireg_double_slashes__issue_3658(self):
+        dirname = 'dir_3658'
+        lib.create_directory_of_small_files(dirname,2)
+        # This introduces the trailing slash to the end of the physical directory path name
+        self.admin.assert_icommand('ireg -R {0} -C {1} {2}'.format(self.testresc, os.path.abspath(dirname)+"/", self.admin.session_collection+"/"+dirname))
+        # And this shows the problem (or not, if the bug is fixed)
+        self.admin.assert_icommand('iscan {0}'.format(os.path.abspath(dirname)))
+        shutil.rmtree(os.path.abspath(dirname), ignore_errors=True)
+
