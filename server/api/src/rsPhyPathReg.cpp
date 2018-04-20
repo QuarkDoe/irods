@@ -131,28 +131,6 @@ irsPhyPathReg( rsComm_t *rsComm, dataObjInp_t *phyPathRegInp ) {
             }
 
             // =-=-=-=-=-=-=-
-            // if "--repl" was specified, make sure we are dealing with a leaf resource
-            if ( getValByKey( &phyPathRegInp->condInput, REG_REPL_KW ) != NULL ) {
-                bool is_coordinating_resource = false;
-                ret = resc_mgr.is_coordinating_resource(dst_resc, is_coordinating_resource);
-                if ( !ret.ok() ) {
-                    irods::log( PASS( ret ) );
-                    return ret.code();
-                }
-
-                if ( is_coordinating_resource ) {
-                    char errMsg[256];
-                    snprintf( errMsg, sizeof errMsg, "%s is a coordinating resource; --repl was set, so must specify leaf resource", dst_resc);
-                    int i = addRErrorMsg( &rsComm->rError, USER_INVALID_RESC_INPUT, errMsg );
-                    if ( i < 0 ) {
-                        irods::log( ERROR( i, "addRErrorMsg failed" ) );
-                    }
-
-                    return USER_INVALID_RESC_INPUT;
-                }
-            }
-
-            // =-=-=-=-=-=-=-
             // get parent
             irods::resource_ptr parent_resc;
             ret = resc->get_parent( parent_resc );
@@ -727,7 +705,24 @@ dirPathReg( rsComm_t *rsComm, dataObjInp_t *phyPathRegInp, char *filePath,
         fileStatInp_t fileStatInp;
         memset( &fileStatInp, 0, sizeof( fileStatInp ) );
 
-        snprintf( fileStatInp.fileName, MAX_NAME_LEN, "%s/%s", filePath, rodsDirent->d_name );
+        // Issue #3658 - This section removes trailing slashes from the 
+        // directory path in the server when the path is already in the catalog.
+        //
+        // TODO:  This is a localized fix that addresses any trailing slashes
+        // in inPath. Any future refactoring of the code that deals with paths
+        // would most probably take care of this issue, and the code segment
+        // below would/should then be removed.
+
+        char tmpStr[MAX_NAME_LEN];
+        rstrcpy( tmpStr, filePath, MAX_NAME_LEN );
+        size_t len = strlen(tmpStr);
+
+        for (size_t i = len-1; i > 0 && tmpStr[i] == '/'; i--) {
+            tmpStr[i] = '\0';
+        }
+
+        snprintf( fileStatInp.fileName, MAX_NAME_LEN, "%s/%s", tmpStr, rodsDirent->d_name );
+
         rstrcpy( fileStatInp.objPath, subPhyPathRegInp.objPath, MAX_NAME_LEN );
         fileStatInp.addr = fileOpendirInp.addr;
         rstrcpy( fileStatInp.rescHier, resc_hier, MAX_NAME_LEN );
@@ -752,21 +747,34 @@ dirPathReg( rsComm_t *rsComm, dataObjInp_t *phyPathRegInp, char *filePath,
                     continue;
                 }
             }
+
             subPhyPathRegInp.dataSize = myStat->st_size;
+            std::string reg_func_name;
+
             if ( getValByKey( &phyPathRegInp->condInput, REG_REPL_KW ) != NULL ) {
-                status = filePathRegRepl( rsComm, &subPhyPathRegInp,
-                                          fileStatInp.fileName, _resc_name );
+                reg_func_name = "filePathRegRepl";
+                status = filePathRegRepl( rsComm, &subPhyPathRegInp, fileStatInp.fileName, _resc_name );
             }
             else {
-                addKeyVal( &subPhyPathRegInp.condInput, FILE_PATH_KW,
-                           fileStatInp.fileName );
+                reg_func_name = "filePathReg";
+                addKeyVal( &subPhyPathRegInp.condInput, FILE_PATH_KW, fileStatInp.fileName );
                 status = filePathReg( rsComm, &subPhyPathRegInp, _resc_name );
+            }
+
+            if ( status != 0 ) {
+                if ( rsComm->rError.len < MAX_ERROR_MESSAGES ) {
+                    char error_msg[ERR_MSG_LEN];
+                    snprintf( error_msg, ERR_MSG_LEN, "dirPathReg: %s failed for %s, status = %d",
+                             reg_func_name.c_str(), subPhyPathRegInp.objPath, status );
+                    addRErrorMsg( &rsComm->rError, status, error_msg );
+                }
             }
         }
         else if ( ( myStat->st_mode & S_IFDIR ) != 0 ) {    /* a directory */
             status = dirPathReg( rsComm, &subPhyPathRegInp,
                                  fileStatInp.fileName, _resc_name );
         }
+
         free( myStat );
         free( rodsDirent ); // JMC - backport 4835
     }
