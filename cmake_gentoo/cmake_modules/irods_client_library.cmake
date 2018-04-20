@@ -1,0 +1,226 @@
+#====================
+#irods_client library
+#====================
+set(
+	IRODS_LIBIRODS_CLIENT_SOURCES
+	${IRODS_SOURCE_DIR}/lib/api/src/rcAuthCheck.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcAuthPluginRequest.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcAuthRequest.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcAuthResponse.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcBulkDataObjPut.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcBulkDataObjReg.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcChkNVPathPerm.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcChkObjPermAndStat.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcClientHints.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcCloseCollection.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcCollCreate.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcCollRepl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataCopy.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataGet.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjChksum.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjClose.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjCopy.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjCreate.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjCreateAndStat.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjGet.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjLock.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjLseek.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjOpen.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjOpenAndStat.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjPhymv.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjPut.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjRead.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjRename.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjRepl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjRsync.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjTrim.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjTruncate.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjUnlink.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataObjWrite.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcDataPut.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcEndTransaction.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcExecCmd.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcExecMyRule.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcExecRuleExpression.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileChksum.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileChmod.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileClose.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileClosedir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileCreate.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileGet.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileGetFsFreeSpace.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileLseek.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileMkdir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileOpen.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileOpendir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFilePut.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileRead.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileReaddir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileRename.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileRmdir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileStageToCache.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileStat.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileSyncToArch.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileTruncate.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileUnlink.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcFileWrite.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGenQuery.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGeneralAdmin.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGeneralRowInsert.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGeneralRowPurge.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGeneralUpdate.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetHierFromLeafId.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetHierarchyForResc.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetHostForGet.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetHostForPut.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetLimitedPassword.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetMiscSvrInfo.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetRemoteZoneResc.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetRescQuota.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetTempPassword.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetTempPasswordForOther.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcGetXmsgTicket.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcIESClientHints.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcL3FileGetSingleBuf.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcL3FilePutSingleBuf.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcModAVUMetadata.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcModAccessControl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcModColl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcModDataObjMeta.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcObjStat.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcOpenCollection.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcOprComplete.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcPamAuthRequest.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcPhyBundleColl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcPhyPathReg.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcProcStat.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcQuerySpecColl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcRcvXmsg.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcReadCollection.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcRegColl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcRegDataObj.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcRegReplica.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcRmColl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcRuleExecDel.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcRuleExecMod.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcRuleExecSubmit.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSendXmsg.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcServerReport.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSimpleQuery.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSpecificQuery.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSslEnd.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSslStart.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcStreamClose.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcStreamRead.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcStructFileBundle.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcStructFileExtAndReg.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcStructFileExtract.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcStructFileSync.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileClose.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileClosedir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileCreate.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileGet.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileLseek.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileMkdir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileOpen.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileOpendir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFilePut.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileRead.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileReaddir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileRename.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileRmdir.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileStat.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileTruncate.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileUnlink.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSubStructFileWrite.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcSyncMountedColl.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcTicketAdmin.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcUnbunAndRegPhyBunfile.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcUnregDataObj.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcUserAdmin.cpp
+	${IRODS_SOURCE_DIR}/lib/api/src/rcZoneReport.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/bunUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/chksumUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/clientLogin.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/cpUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/fsckUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/getUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/irods_c_api.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/irods_client_api_table.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/irods_client_negotiation.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/lsUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/mcollUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/miscUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/mkdirUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/mvUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/phybunUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/phymvUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/procApiRequest.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/putUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/rcConnect.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/rcPortalOpr.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/regUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/replUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/rmdirUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/rmUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/rmtrashUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/rsyncUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/scanUtil.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/sockComm.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/sslSockComm.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/trimUtil.cpp
+)
+
+add_library(
+	irods_client
+	SHARED
+	${IRODS_LIBIRODS_CLIENT_SOURCES}
+)
+
+target_link_libraries(
+	irods_client
+	PRIVATE
+	irods_plugin_dependencies
+	irods_common
+	${Boost_CHRONO_LIBRARY}
+	${Boost_FILESYSTEM_LIBRARY}
+	${Boost_REGEX_LIBRARY}
+	${Boost_SYSTEM_LIBRARY}
+	${Boost_THREAD_LIBRARY}
+	${JANSSON_LIBRARIES}
+	${OPENSSL_SSL_LIBRARY}
+	${OPENSSL_CRYPTO_LIBRARY}
+	${CMAKE_THREAD_LIBS_INIT}
+)
+
+target_include_directories(
+	irods_client
+	PRIVATE
+	${CMAKE_BINARY_DIR}/lib/core/include
+	${IRODS_SOURCE_DIR}/lib/core/include
+	${IRODS_SOURCE_DIR}/lib/api/include
+	${IRODS_SOURCE_DIR}/lib/hasher/include
+	${IRODS_SOURCE_DIR}/lib/rbudp/include
+	${IRODS_SOURCE_DIR}/server/core/include
+	${IRODS_SOURCE_DIR}/server/icat/include
+	${IRODS_SOURCE_DIR}/server/re/include
+	${IRODS_SOURCE_DIR}/server/drivers/include
+	${Boost_INCLUDE_DIRS}
+	${JANSSON_INCLUDE_DIRS}
+	${OPENSSL_INCLUDE_DIR}
+)
+
+set_property( TARGET irods_client PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD} )
+set_property( TARGET irods_client PROPERTY VERSION ${IRODS_VERSION} )
+set_property( TARGET irods_client PROPERTY SOVERSION ${IRODS_VERSION} )
+target_compile_options( irods_client PRIVATE -Wno-write-strings )
+target_compile_definitions( irods_client PRIVATE ${IRODS_COMPILE_DEFINITIONS} )
+
+install(
+	TARGETS irods_client
+	EXPORT IRODSTargets
+	LIBRARY
+	DESTINATION ${IRODS_LIBRARY_DIR}
+	COMPONENT irods-runtime
+	# COMPONENT ${IRODS_PACKAGE_COMPONENT_RUNTIME_NAME}
+)

@@ -1,0 +1,273 @@
+#====================
+#irods_server library
+#====================
+set(
+	IRODS_LIBIRODS_SERVER_SOURCES
+	${IRODS_SOURCE_DIR}/server/api/src/rsAuthCheck.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsAuthPluginRequest.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsAuthRequest.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsAuthResponse.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsBulkDataObjPut.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsBulkDataObjReg.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsChkNVPathPerm.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsChkObjPermAndStat.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsClientHints.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsCloseCollection.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsCollCreate.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsCollRepl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataCopy.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataGet.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjChksum.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjClose.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjCopy.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjCreate.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjCreateAndStat.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjGet.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjLock.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjLseek.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjOpen.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjOpenAndStat.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjPhymv.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjPut.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjRead.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjRename.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjRepl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjRsync.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjTrim.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjTruncate.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjUnlink.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataObjWrite.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsDataPut.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsEndTransaction.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsExecCmd.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsExecMyRule.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsExecRuleExpression.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileChksum.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileChmod.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileClose.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileClosedir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileCreate.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileGet.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileGetFsFreeSpace.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileLseek.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileMkdir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileOpen.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileOpendir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFilePut.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileRead.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileReaddir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileRename.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileRmdir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileStageToCache.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileStat.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileSyncToArch.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileTruncate.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileUnlink.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsFileWrite.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGenQuery.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGeneralAdmin.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGeneralRowInsert.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGeneralRowPurge.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGeneralUpdate.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetHierFromLeafId.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetHierarchyForResc.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetHostForGet.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetHostForPut.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetLimitedPassword.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetMiscSvrInfo.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetRemoteZoneResc.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetRescQuota.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetTempPassword.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetTempPasswordForOther.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsGetXmsgTicket.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsIESClientHints.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsL3FileGetSingleBuf.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsL3FilePutSingleBuf.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsModAVUMetadata.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsModAccessControl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsModColl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsModDataObjMeta.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsObjStat.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsOpenCollection.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsOprComplete.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsPamAuthRequest.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsPhyBundleColl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsPhyPathReg.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsProcStat.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsQuerySpecColl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsRcvXmsg.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsReadCollection.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsRegColl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsRegDataObj.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsRegReplica.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsRmColl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsRuleExecDel.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsRuleExecMod.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsRuleExecSubmit.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSendXmsg.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsServerReport.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSetRoundRobinContext.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSimpleQuery.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSpecificQuery.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSslEnd.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSslStart.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsStreamClose.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsStreamRead.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsStructFileBundle.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsStructFileExtAndReg.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsStructFileExtract.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsStructFileSync.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileClose.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileClosedir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileCreate.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileGet.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileLseek.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileMkdir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileOpen.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileOpendir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFilePut.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileRead.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileReaddir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileRename.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileRmdir.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileStat.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileTruncate.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileUnlink.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSubStructFileWrite.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsSyncMountedColl.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsTicketAdmin.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsUnbunAndRegPhyBunfile.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsUnregDataObj.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsUserAdmin.cpp
+	${IRODS_SOURCE_DIR}/server/api/src/rsZoneReport.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/collection.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/dataObjOpr.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/fileOpr.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/initServer.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_api_calling_functions.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_collection_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_data_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_database_factory.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_database_manager.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_database_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_database_plugin.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_file_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_get_l1desc.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_report_plugins_in_json.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_mysql_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_oracle_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_physical_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_postgres_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_generic_database_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_resource_backport.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_resource_manager.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_resource_plugin.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_resource_plugin_impostor.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_resource_redirect.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_server_api_table.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_server_globals.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_server_negotiation.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_server_state.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_signal.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_structured_object.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/miscServerFunct.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/objDesc.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/objMetaOpr.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/physPath.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/procLog.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/rodsAgent.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/rodsConnect.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/rsApiHandler.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/rsIcatOpr.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/rsLog.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/specColl.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/xmsgLib.cpp
+	${IRODS_SOURCE_DIR}/server/drivers/src/fileDriver.cpp
+	${IRODS_SOURCE_DIR}/server/icat/src/icatHighLevelRoutines.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/extractAvuMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/genQueryMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/icatAdminMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/icatGeneralMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/irods_ms_plugin.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/irods_re_plugin.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/irods_re_structs.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/reAction.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/nre.systemMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/irods_re_namespaceshelper.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/irods_re_ruleexistshelper.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/irods_re_serialization.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/keyValPairMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/locks.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/mailMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/miscMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/printMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/reDataObjOpr.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/reIn2p3SysRule.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/reNaraMetaData.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/reSysDataObjOpr.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/sharedmemory.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/testMS.cpp
+	${IRODS_SOURCE_DIR}/server/re/src/xmsgMS.cpp
+)
+
+add_library(
+	irods_server
+	SHARED
+	${IRODS_LIBIRODS_SERVER_SOURCES}
+	${IRODS_LIBIRODS_CLIENT_SOURCES}
+)
+
+target_link_libraries(
+	irods_server
+	PRIVATE
+	irods_common
+	irods_plugin_dependencies
+	${AVROCPP_LIBRARIES}
+	${Boost_CHRONO_LIBRARY}
+	${Boost_FILESYSTEM_LIBRARY}
+	${Boost_THREAD_LIBRARY}
+	${Boost_REGEX_LIBRARY}
+	${Boost_SYSTEM_LIBRARY}
+	${JANSSON_LIBRARIES}
+	${ZEROMQ_LIBRARIES}
+	${OPENSSL_SSL_LIBRARY}
+	${OPENSSL_CRYPTO_LIBRARY}
+	${CMAKE_DL_LIBS}
+	rt
+	${CMAKE_THREAD_LIBS_INIT}
+)
+
+target_include_directories(
+	irods_server
+	PRIVATE
+	${CMAKE_BINARY_DIR}/lib/core/include
+	${IRODS_SOURCE_DIR}/lib/api/include
+	${IRODS_SOURCE_DIR}/lib/core/include
+	${IRODS_SOURCE_DIR}/lib/hasher/include
+	${IRODS_SOURCE_DIR}/lib/rbudp/include
+	${IRODS_SOURCE_DIR}/server/api/include
+	${IRODS_SOURCE_DIR}/server/core/include
+	${IRODS_SOURCE_DIR}/server/drivers/include
+	${IRODS_SOURCE_DIR}/server/icat/include
+	${IRODS_SOURCE_DIR}/server/re/include
+	${AVROCPP_INCLUDE_DIR}
+	${Boost_INCLUDE_DIRS}
+	${JANSSON_INCLUDE_DIRS}
+	${ZEROMQ_INCLUDE_DIRS}
+	${OPENSSL_INCLUDE_DIR}
+)
+
+set_property( TARGET irods_server PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD} )
+set_property( TARGET irods_server PROPERTY VERSION ${IRODS_VERSION} )
+set_property( TARGET irods_server PROPERTY SOVERSION ${IRODS_VERSION} )
+target_compile_definitions( irods_server PRIVATE ENABLE_RE RODS_CLERVER ${IRODS_COMPILE_DEFINITIONS} )
+target_compile_options( irods_server PRIVATE -Wno-write-strings )
+
+install(
+	TARGETS irods_server
+	EXPORT IRODSTargets
+	LIBRARY
+	DESTINATION ${IRODS_LIBRARY_DIR}
+	COMPONENT irods-runtime
+	# COMPONENT ${IRODS_PACKAGE_COMPONENT_RUNTIME_NAME}
+)

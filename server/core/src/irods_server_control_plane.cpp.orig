@@ -69,7 +69,7 @@ namespace irods {
         zmq::socket_t  zmq_skt( zmq_ctx, ZMQ_REQ );
         zmq_skt.setsockopt( ZMQ_RCVTIMEO, &time_out, sizeof( time_out ) );
         zmq_skt.setsockopt( ZMQ_SNDTIMEO, &time_out, sizeof( time_out ) );
-        zmq_skt.setsockopt( ZMQ_LINGER, 0, 0 );
+        zmq_skt.setsockopt( ZMQ_LINGER, 0 );
 
         // this is the client so we connect rather than bind
         std::string conn_str( "tcp://" );
@@ -95,7 +95,7 @@ namespace irods {
         cmd.options[ SERVER_CONTROL_HOST_KW ]   = _host;
 
         // serialize using the generated avro class
-        std::unique_ptr< avro::OutputStream > out ( avro::memoryOutputStream() );
+        std::auto_ptr< avro::OutputStream > out = avro::memoryOutputStream();
         avro::EncoderPtr e = avro::binaryEncoder();
         e->init( *out );
         avro::encode( *e, cmd );
@@ -734,7 +734,7 @@ namespace irods {
         int time_out = SERVER_CONTROL_POLLING_TIME_MILLI_SEC;
         zmq_skt.setsockopt( ZMQ_RCVTIMEO, &time_out, sizeof( time_out ) );
         zmq_skt.setsockopt( ZMQ_SNDTIMEO, &time_out, sizeof( time_out ) );
-        zmq_skt.setsockopt( ZMQ_LINGER, 0, 0 );
+        zmq_skt.setsockopt( ZMQ_LINGER, 0 );
 
         std::stringstream port_sstr;
         port_sstr << port;
@@ -1146,10 +1146,10 @@ namespace irods {
         }
 
 
-        std::unique_ptr<avro::InputStream> in ( avro::memoryInputStream(
+        std::auto_ptr<avro::InputStream> in = avro::memoryInputStream(
                 static_cast<const uint8_t*>(
                     data_to_process.data() ),
-                data_to_process.size() ) );
+                data_to_process.size() );
         avro::DecoderPtr dec = avro::binaryDecoder();
         dec->init( *in );
 

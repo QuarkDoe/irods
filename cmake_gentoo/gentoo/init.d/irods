@@ -1,0 +1,51 @@
+#!/sbin/openrc-run
+#
+
+description="iRODS service"
+
+depend(){
+	need localmount, net
+}
+
+checkconfig(){
+	[ -z "${IRODS_HOME}" ] && {
+		IRODS_HOME=/var/lib/irods
+	}
+	[ -e "${IRODS_HOME}" ] || {
+		eerror "Can't find IRODS_HOME (${IRODS_HOME})"
+		return 1
+	}
+	[ -z "${IRODS_USER}" ] && {
+		IRODS_USER=`ls -ld "${IRODS_HOME}" | awk '{print $3}'`
+	}
+	[ -z "${IRODS_GROUP}" ] && {
+		IRODS_GROUP=`ls -ld "${IRODS_HOME}" | awk '{print $4}'`
+	}
+	[ -z "${IRODS_CTL}" ] && {
+		IRODS_CTL=${IRODS_HOME}/irodsctl
+	}
+	[ -f "${IRODS_CTL}" ] || {
+		eerror "Can't find irodsctl at ${IRODS_CTL}"
+		return 1
+	}
+}
+
+status(){
+	checkconfig || return 1
+	su ${SU_SHELL_OPTS} ${IRODS_USER} -c "${IRODS_CTL} status"
+}
+
+start(){
+	checkconfig || return 1
+	su ${SU_SHELL_OPTS} ${IRODS_USER} -c "${IRODS_CTL} start"
+}
+
+stop(){
+	checkconfig || return 1
+	su ${SU_SHELL_OPTS} ${IRODS_USER} -c "${IRODS_CTL} stop"
+}
+
+restart(){
+	checkconfig || return 1
+	su ${SU_SHELL_OPTS} ${IRODS_USER} -c "${IRODS_CTL} restart"
+}
