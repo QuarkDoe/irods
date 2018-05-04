@@ -2,7 +2,9 @@ tags
 .dir-locals.el
 .build
 .vscode
+.kdev4
 .project
 .cproject
+*.kdev4
 *.swp
 *.pyc
