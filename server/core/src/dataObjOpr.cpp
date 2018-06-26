@@ -33,9 +33,13 @@
 #include "irods_random.hpp"
 #include "irods_file_object.hpp"
 
+#include <algorithm>
+
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/convenience.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/algorithm/string.hpp>
+
 using namespace boost::filesystem;
 
 // =-=-=-=-=-=-=-
@@ -956,7 +960,7 @@ sortObjInfoForRepl(
     // to update is made already. However, we have to handle
     // the case where the resc_hier and dst_resc_hier are the same.
     *oldDataObjInfoHead = NULL;
-    if ( dst_resc_hier && strcmp( dst_resc_hier, resc_hier ) != 0 ) {
+    if ( resc_hier && dst_resc_hier && strcmp( dst_resc_hier, resc_hier ) != 0 ) {
         dataObjInfo_t* tmp_info = *dataObjInfoHead;
         dataObjInfo_t* prev_info = NULL;
         while ( tmp_info ) {
@@ -1558,6 +1562,25 @@ int matchDataObjInfoByCondInput( dataObjInfo_t **dataObjInfoHead,
 int
 resolveInfoForTrim( dataObjInfo_t **dataObjInfoHead,
                     keyValPair_t *condInput ) {
+    const auto* repl_number_string = getValByKey(condInput, REPL_NUM_KW);
+    int repl_number = -1;
+
+    if (repl_number_string) {
+        try {
+            repl_number = std::stoi(repl_number_string);
+
+            if (!contains_replica(*dataObjInfoHead, repl_number)) {
+                return USER_INVALID_REPLICA_INPUT;
+            }
+        }
+        catch (const std::invalid_argument& e) {
+            return USER_INVALID_REPLICA_INPUT;
+        }
+        catch (const std::out_of_range& e) {
+            return USER_INVALID_REPLICA_INPUT;
+        }
+    }
+    
     int i, status;
     dataObjInfo_t *matchedDataObjInfo = NULL;
     dataObjInfo_t *matchedOldDataObjInfo = NULL;
@@ -1603,7 +1626,7 @@ resolveInfoForTrim( dataObjInfo_t **dataObjInfoHead,
         else {
             /* don't trim anything */
             freeAllDataObjInfo( *dataObjInfoHead );
-            *dataObjInfoHead = NULL; // JMC cppcheck - nullptr
+            *dataObjInfoHead = nullptr; // JMC cppcheck - nullptr
             freeAllDataObjInfo( oldDataObjInfoHead );
             return 0;
         }
@@ -1616,22 +1639,46 @@ resolveInfoForTrim( dataObjInfo_t **dataObjInfoHead,
 
     freeAllDataObjInfo( *dataObjInfoHead );
     freeAllDataObjInfo( oldDataObjInfoHead );
-    *dataObjInfoHead = oldDataObjInfoHead = NULL;
+    *dataObjInfoHead = oldDataObjInfoHead = nullptr;
 
-    if ( ( tmpStr = getValByKey( condInput, COPIES_KW ) ) != NULL ) {
-        minCnt = atoi( tmpStr );
-        if ( minCnt <= 0 ) {
+    const auto total_good_repls = matchedInfoCnt + unmatchedInfoCnt;
+
+    if ((tmpStr = getValByKey(condInput, COPIES_KW))) {
+        try {
+            minCnt = std::stoi(tmpStr);
+        }
+        catch (const std::invalid_argument& e) {
             minCnt = DEF_MIN_COPY_CNT;
+        }
+        catch (const std::out_of_range& e) {
+            minCnt = DEF_MIN_COPY_CNT;
+        }
+
+        if (minCnt <= 0) {
+            minCnt = DEF_MIN_COPY_CNT;
+        }
+        else if (minCnt > total_good_repls) {
+            minCnt = total_good_repls;
         }
     }
     else {
         minCnt = DEF_MIN_COPY_CNT;
     }
 
-    toTrim = unmatchedInfoCnt + matchedInfoCnt - minCnt;
+    // the TOTAL number of good replicas that COULD be trimmed.
+    toTrim = total_good_repls - minCnt;
 
     if ( toTrim > matchedInfoCnt ) {    /* cannot trim more than match */
         toTrim = matchedInfoCnt;
+    }
+
+    if (repl_number > -1) {
+        // if the number of good replicas is already down to the minimum and the
+        // client requested that a good replica be trimmed, doing that would violate
+        // the minimum replicas requirement.
+        if (total_good_repls == minCnt && contains_replica(matchedDataObjInfo, repl_number)) {
+            return USER_INCOMPATIBLE_PARAMS;
+        }
     }
 
     if ( toTrim >= 0 ) {
@@ -1697,6 +1744,7 @@ resolveInfoForTrim( dataObjInfo_t **dataObjInfoHead,
             queDataObjInfo( dataObjInfoHead, matchedOldDataObjInfo, 0, 1 );
         }
     }
+
     return 0;
 }
 
@@ -1887,3 +1935,38 @@ irods::error resolve_hierarchy_for_resc_from_cond_input(
     return SUCCESS();
 
 } // resolve_hierarchy_for_cond_input
+
+irods::linked_list_iterator<dataObjInfo_t> begin(dataObjInfo_t* _objects) noexcept {
+    return irods::linked_list_iterator<dataObjInfo_t>{_objects};
+}
+
+irods::linked_list_iterator<const dataObjInfo_t> begin(const dataObjInfo_t* _objects) noexcept {
+    return irods::linked_list_iterator<const dataObjInfo_t>{_objects};
+}
+
+irods::linked_list_iterator<dataObjInfo_t> end(dataObjInfo_t* _objects) noexcept {
+    return {};
+}
+
+irods::linked_list_iterator<const dataObjInfo_t> end(const dataObjInfo_t* _objects) noexcept {
+    return {};
+}
+
+bool contains_replica(const dataObjInfo_t* _objects, const std::string& _resc_name) {
+    return contains_replica_if(_objects, [&_resc_name](const auto& _node) {
+        const std::string hier{_node.rescHier};
+        auto b = boost::make_split_iterator(hier, boost::first_finder(";", boost::is_equal{}));
+        boost::split_iterator<std::string::const_iterator> e{};
+
+        return std::any_of(b, e, [&_resc_name](const auto& _resource_name) {
+            return _resource_name == _resc_name;
+        });
+    });
+}
+
+bool contains_replica(const dataObjInfo_t* _objects, int _replica_number) {
+    return contains_replica_if(_objects, [_replica_number](const auto& _node) {
+        return _node.replNum == _replica_number;
+    });
+}
+

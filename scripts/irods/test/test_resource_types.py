@@ -71,6 +71,30 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         shutil.rmtree(irods_config.irods_directory + "/unixB1Vault", ignore_errors=True)
         shutil.rmtree(irods_config.irods_directory + "/unixAVault", ignore_errors=True)
 
+    def test_redirect_map_regeneration__3904(self):
+        # Setup
+        filecount = 50
+        dirname = 'test_redirect_map_regeneration__3904'
+        lib.create_directory_of_small_files(dirname, filecount)
+
+        self.admin.assert_icommand(['iput', '-r', dirname])
+
+        # Count the number of recipients of replicas
+        hier_ctr = {}
+        stdout,_,_ = self.admin.run_icommand(['ils', '-l', dirname])
+        lines = stdout.splitlines()
+        # Check all lines but the first one
+        for line in lines[1:]:
+            res = line.split()
+            hier_ctr[res[2]] = 'found_it'
+
+        # Ensure that a different set of replication targets resulted at least once
+        self.assertTrue(len(hier_ctr) == 3, msg="only %d resources received replicas, expected 3" % len(hier_ctr))
+
+        # Cleanup
+        self.admin.assert_icommand(['irm', '-rf', dirname])
+        shutil.rmtree(dirname, ignore_errors=True)
+
     @unittest.skip("EMPTY_RESC_PATH - no vault path for coordinating resources")
     def test_ireg_as_rodsuser_in_vault(self):
         pass
@@ -299,7 +323,7 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from cacheResc only
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from cacheResc only
         # replica 2 should still be there
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["2 " + self.testresc, self.testfile])
         self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
@@ -638,7 +662,7 @@ class Test_Resource_RoundRobinWithinReplication(ChunkyDevTest, ResourceSuite, un
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from cacheResc only
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from cacheResc only
         # replica 2 should still be there
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["2 " + self.testresc, self.testfile])
         self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
@@ -697,6 +721,34 @@ class Test_Resource_Unixfilesystem(ResourceSuite, ChunkyDevTest, unittest.TestCa
             admin_session.assert_icommand("iadmin rmresc demoResc")
             admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
         shutil.rmtree(IrodsConfig().irods_directory + "/demoRescVault", ignore_errors=True)
+
+    @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only applicable for irods_rule_language REP')
+    def test_unix_filesystem_free_space_on_root__3928(self):
+        free_space = '100'
+        self.admin.assert_icommand(['iadmin', 'modresc', 'demoResc', 'path', '/demoRescVault'], 'STDOUT_SINGLELINE', 'Previous resource path')
+        self.admin.assert_icommand(['iadmin', 'modresc', 'demoResc', 'free_space', free_space])
+
+        rule_file_path = 'test_free_space_on_root.r'
+        rule_str = '''
+test_free_space_on_root {{
+    msi_update_unixfilesystem_resource_free_space(*leaf_resource);
+}}
+
+INPUT *leaf_resource="demoResc"
+OUTPUT ruleExecOut
+        '''
+        with open(rule_file_path, 'w') as rule_file:
+            rule_file.write(rule_str)
+
+        initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
+        rc,_,stderr = self.admin.assert_icommand_fail(['irule', '-F', rule_file_path])
+
+        self.admin.assert_icommand(['ilsresc', '-l', 'demoResc'], 'STDOUT_SINGLELINE', ['free space', free_space])
+        self.assertTrue(0 != rc)
+        self.assertTrue('status = -32000 SYS_INVALID_RESC_INPUT' in stderr)
+        self.assertTrue(1 == lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'could not find existing non-root path from vault path', start_index=initial_log_size))
+
+        os.unlink(rule_file_path)
 
     def test_unix_filesystem_free_space__3306(self):
         filename = 'test_unix_filesystem_free_space__3306.txt'
@@ -871,7 +923,7 @@ class Test_Resource_WeightedPassthru(ResourceBase, unittest.TestCase):
         shutil.rmtree(irods_config.irods_directory + "/unixBVault", ignore_errors=True)
         shutil.rmtree(irods_config.irods_directory + "/unixAVault", ignore_errors=True)
 
-    def test_weighted_passthrough(self):
+    def test_weighted_passthru(self):
         filename = "some_local_file.txt"
         filepath = lib.create_local_testfile(filename)
 
@@ -888,7 +940,7 @@ class Test_Resource_WeightedPassthru(ResourceBase, unittest.TestCase):
         self.admin.assert_icommand("iadmin modresc w_pt context 'write=1.0;read=0.01'")
         self.admin.assert_icommand("iget " + filename + " - ", 'STDOUT_SINGLELINE', "TESTFILE")
 
-    def test_weighted_passthrough__2789(self):
+    def test_weighted_passthru__2789(self):
 
         ### write=1.0;read=1.0
         self.admin.assert_icommand("iadmin modresc w_pt context 'write=1.0;read=1.0'")
@@ -1077,7 +1129,7 @@ class Test_Resource_CompoundWithMockarchive(ChunkyDevTest, ResourceSuite, unitte
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from cacheResc only
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from cacheResc only
         # replica 2 should still be there
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["2 " + self.testresc, self.testfile])
         self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
@@ -1396,7 +1448,7 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from cacheResc only
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from cacheResc only
         # replica 2 should still be there
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["2 " + self.testresc, self.testfile])
         self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
@@ -1907,7 +1959,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from cacheResc only
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from cacheResc only
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["2 " + self.testresc, self.testfile])
         self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
                                         ["0 " + self.admin.default_resource, self.testfile])  # replica 0 should be gone
@@ -2536,7 +2588,7 @@ class Test_Resource_ReplicationWithinReplication(ChunkyDevTest, ResourceSuite, u
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from grid
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from grid
         # replica 1 should be there
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["1 ", self.testfile])
         # replica 2 should be there
@@ -2637,7 +2689,7 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from cacheResc only
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from cacheResc only
         # replica 2 should still be there
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["4 " + self.testresc, self.testfile])
         self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
@@ -3088,7 +3140,7 @@ class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDev
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from cacheResc only
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from cacheResc only
         # replica 2 should still be there
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["4 " + self.testresc, self.testfile])
         self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
@@ -3476,6 +3528,7 @@ class Test_Resource_RoundRobin(ChunkyDevTest, ResourceSuite, unittest.TestCase):
 
 
 class Test_Resource_Replication(ChunkyDevTest, ResourceSuite, unittest.TestCase):
+    plugin_name = IrodsConfig().default_rule_engine_plugin
 
     def setUp(self):
         with session.make_session_for_existing_admin() as admin_session:
@@ -3509,8 +3562,87 @@ class Test_Resource_Replication(ChunkyDevTest, ResourceSuite, unittest.TestCase)
         shutil.rmtree(irods_config.irods_directory + "/unix2RescVault", ignore_errors=True)
         shutil.rmtree(irods_config.irods_directory + "/unix3RescVault", ignore_errors=True)
 
+    @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only applicable for irods_rule_language REP')
+    def test_open_write_close_for_repl__3909(self):
+        # Create local test file of a certain expected size
+        filename = 'some_local_file.txt'
+        filepath = lib.create_local_testfile(filename)
+        expected_size_in_bytes = 9
+        test_string = 'a' * expected_size_in_bytes
+        with open(filepath, 'w') as f:
+            f.write(test_string)
 
+        # Put test file into replication resource and verify
+        self.admin.assert_icommand(['iput', filepath])
+        self.admin.assert_icommand(['ils', '-l'], 'STDOUT_SINGLELINE', [str(expected_size_in_bytes), ' & ', filename])
 
+        # Create a rule file to open data object, write a string to it, and close it
+        logical_path = os.path.join( self.admin.session_collection, filename )
+        write_string = 'b' * (expected_size_in_bytes + 1)
+        parameters = {}
+        parameters['logical_path'] = logical_path
+        parameters['write_string'] = write_string
+        rule_file_path = 'test_open_write_close_for_repl__3909.r'
+        rule_str = '''
+test_open_write_close {{
+    msiDataObjOpen("objPath={logical_path}++++openFlags=O_WRONLY", *FD)
+    msiDataObjWrite(*FD, "{write_string}", *LEN)
+    msiDataObjClose(*FD, *status)
+}}
+
+#INPUT *data_obj_path="{logical_path}"
+INPUT null
+OUTPUT ruleExecOut
+'''.format(**parameters)
+        with open(rule_file_path, 'w') as rule_file:
+            rule_file.write(rule_str)
+
+        # Run rule on replicated data object and verify
+        self.admin.assert_icommand(['irule', '-F', rule_file_path])
+        self.admin.assert_icommand(['ils', '-l'], 'STDOUT_SINGLELINE', [str(expected_size_in_bytes + 1), ' & ', filename])
+
+        # Clean up test files
+        self.admin.assert_icommand(['irm', '-f', logical_path])
+        os.unlink(filepath)
+        os.unlink(rule_file_path)
+
+    def test_ibun_extract_to_rebalance(self):
+        # Create a tar file
+        tar_file = 'pea_pod.tar'
+        test_files = ['pea1', 'pea2', 'pea3']
+        for f in test_files:
+            lib.make_file(f, 1000)
+        lib.execute_command(['tar', 'czf', tar_file, test_files[0], test_files[1], test_files[2]])
+
+        # Set up some logical names
+        coll_name = 'peas'
+        coll_path = self.admin.session_collection + '/' + coll_name
+        tar_path = self.admin.session_collection + '/' + tar_file
+
+        # Put the tar file into iRODS
+        self.admin.assert_icommand(['iput', tar_file])
+        self.admin.assert_icommand(['ils', '-L'], 'STDOUT_SINGLELINE', tar_file)
+
+        # Extract tar file to the replication resource
+        self.admin.assert_icommand(['ibun', '-x', tar_path, coll_path])
+        for f in test_files:
+            self.admin.assert_icommand(['ils', '-L', coll_path], 'STDOUT_SINGLELINE', [' 0 ', ' & ', f])
+
+        # Perform a rebalance to give all the children a copy of each file
+        self.admin.assert_icommand(['iadmin', 'modresc', 'demoResc', 'rebalance'])
+        for f in test_files:
+            self.admin.assert_icommand(['ils', '-L', coll_path + '/' + f], 'STDOUT_SINGLELINE', [' 0 ', ' & ', f])
+            self.admin.assert_icommand(['ils', '-L', coll_path + '/' + f], 'STDOUT_SINGLELINE', [' 1 ', ' & ', f])
+            self.admin.assert_icommand(['ils', '-L', coll_path + '/' + f], 'STDOUT_SINGLELINE', [' 2 ', ' & ', f])
+
+        # Local cleanup
+        self.admin.assert_icommand(['irm', '-rf', coll_path])
+        self.admin.assert_icommand(['irm', '-rf', tar_path])
+        if os.path.exists(tar_file):
+            os.unlink(tar_file)
+        for f in test_files:
+            if os.path.exists(f):
+                os.unlink(f)
 
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Checks local file")
     def test_file_modified_on_checksum__ticket_3525(self):
@@ -3557,22 +3689,14 @@ class Test_Resource_Replication(ChunkyDevTest, ResourceSuite, unittest.TestCase)
         filename = "test_num_repl_policy__ticket_2851.txt"
         filepath = lib.create_local_testfile(filename)
 
-        for i in range(0,10):
-            self.admin.assert_icommand("iput " + filename + ' ' + filename+str(i))
-
-        hier_ctr = {}
-        for i in range(0,10):
-            stdout,_,_ = self.admin.run_icommand(['ils', '-l', filename+str(i)])
-            res = stdout.split()
-            hier_ctr[res[2]] = 'found_it' # first resc_hier
-            hier_ctr[res[9]] = 'found_it' # second resc_hier
-
-        print('hier_ctr size: '+str(len(hier_ctr)))
+        self.admin.assert_icommand("iput " + filepath + ' ' + filename)
+        # Count number of lines to determine number of replicas
+        linecount = len(self.admin.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', filename)[1].splitlines())
+        self.assertTrue(2 == linecount, msg='[{}] replicas made, expected 2'.format(linecount))
+        self.admin.assert_icommand(['irm', '-f', filename])
 
         self.admin.assert_icommand('iadmin modresc demoResc context "NO_CONTEXT"')
-
-        # 10 iputs should hit all the child resources
-        assert len(hier_ctr) == 3
+        os.unlink(filepath)
 
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Checks local file")
     def test_random_read_policy__ticket_2851(self):
@@ -3656,7 +3780,7 @@ class Test_Resource_Replication(ChunkyDevTest, ResourceSuite, unittest.TestCase)
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', [" 1 ", " & " + self.testfile])
         # should be listed 3x
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', [" 2 ", " & " + self.testfile])
-        self.admin.assert_icommand("irm -n 1 " + self.testfile)  # try to remove one of the managed replicas
+        self.admin.assert_icommand("irm -n 1 " + self.testfile, 'STDOUT', 'deprecated')  # try to remove one of the managed replicas
         # should be listed 2x
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', [" 0 ", " & " + self.testfile])
         # should not be listed
@@ -4141,26 +4265,26 @@ class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittes
         self.log_message_starting_location = lib.get_file_size_by_path(irods_config.server_log_path)
 
         self.valid_scenarios = [
-            self.test_scenario(1, 1, 1, self.make_context()),
-            self.test_scenario(3, 1, 1, self.make_context('3')),
-            self.test_scenario(1, 3, 1, self.make_context(delay='3')),
-            self.test_scenario(1, 3, 1, self.make_context(delay='3')),
-            self.test_scenario(3, 2, 2, self.make_context('3', '2', '2')),
-            self.test_scenario(3, 2, 1.5, self.make_context('3', '2', '1.5'))
+            self.retry_scenario(1, 1, 1, self.make_context()),
+            self.retry_scenario(3, 1, 1, self.make_context('3')),
+            self.retry_scenario(1, 3, 1, self.make_context(delay='3')),
+            self.retry_scenario(1, 3, 1, self.make_context(delay='3')),
+            self.retry_scenario(3, 2, 2, self.make_context('3', '2', '2')),
+            self.retry_scenario(3, 2, 1.5, self.make_context('3', '2', '1.5'))
             ]
 
         self.invalid_scenarios = [
-            self.test_scenario(1, 1, 1, self.make_context('-2')),
-            self.test_scenario(1, 1, 1, self.make_context('2.0')),
-            self.test_scenario(1, 1, 1, self.make_context('one')),
-            self.test_scenario(1, 1, 1, self.make_context(delay='0')),
-            self.test_scenario(1, 1, 1, self.make_context(delay='-2')),
-            self.test_scenario(1, 1, 1, self.make_context(delay='2.0')),
-            self.test_scenario(1, 1, 1, self.make_context(delay='one')),
-            self.test_scenario(3, 2, 1, self.make_context('3', '2', '0')),
-            self.test_scenario(3, 2, 1, self.make_context('3', '2', '0.5')),
-            self.test_scenario(3, 2, 1, self.make_context('3', '2', '-2')),
-            self.test_scenario(3, 2, 1, self.make_context('3', '2', 'one'))
+            self.retry_scenario(1, 1, 1, self.make_context('-2')),
+            self.retry_scenario(1, 1, 1, self.make_context('2.0')),
+            self.retry_scenario(1, 1, 1, self.make_context('one')),
+            self.retry_scenario(1, 1, 1, self.make_context(delay='0')),
+            self.retry_scenario(1, 1, 1, self.make_context(delay='-2')),
+            self.retry_scenario(1, 1, 1, self.make_context(delay='2.0')),
+            self.retry_scenario(1, 1, 1, self.make_context(delay='one')),
+            self.retry_scenario(3, 2, 1, self.make_context('3', '2', '0')),
+            self.retry_scenario(3, 2, 1, self.make_context('3', '2', '0.5')),
+            self.retry_scenario(3, 2, 1, self.make_context('3', '2', '-2')),
+            self.retry_scenario(3, 2, 1, self.make_context('3', '2', 'one'))
             ]
         super(Test_Resource_Replication_With_Retry, self).setUp()
 
@@ -4186,7 +4310,7 @@ class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittes
             admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
     # Nested class for containing test case information
-    class test_scenario:
+    class retry_scenario(object):
         def __init__(self, retries, delay, multiplier, context_string=None):
             self.retries = retries
             self.delay = delay
@@ -4354,12 +4478,12 @@ class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittes
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
     def test_repl_retry_iput_no_context(self):
         self.reset_repl_resource()
-        self.run_iput_test(self.test_scenario(1, 1, 1), 'test_repl_retry_iput_no_context')
+        self.run_iput_test(self.retry_scenario(1, 1, 1), 'test_repl_retry_iput_no_context')
 
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
     def test_repl_retry_rebalance_no_context(self):
         self.reset_repl_resource()
-        self.run_rebalance_test(self.test_scenario(1, 1, 1), 'test_repl_retry_rebalance_no_context')
+        self.run_rebalance_test(self.retry_scenario(1, 1, 1), 'test_repl_retry_rebalance_no_context')
 
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
     def test_repl_retry_iput_no_retries(self):
@@ -4414,7 +4538,7 @@ class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittes
         filename = "test_repl_retry_iput_large_multiplier"
         filepath = lib.create_local_testfile(filename)
         large_number = pow(2, 32)
-        scenario = self.test_scenario(2, 1, large_number, self.make_context('2', '1', str(large_number)))
+        scenario = self.retry_scenario(2, 1, large_number, self.make_context('2', '1', str(large_number)))
         failure_message = 'bad numeric conversion'
         self.admin.assert_icommand('iadmin modresc demoResc context "{0}"'.format(scenario.context_string))
 
@@ -4589,7 +4713,7 @@ class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittes
         # should be listed a third time
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', [" 2 ", " & " + self.testfile])
         # Remove one of the original replicas
-        self.admin.assert_icommand("irm -n 1 " + self.testfile)
+        self.admin.assert_icommand("irm -n 1 " + self.testfile, 'STDOUT', 'deprecated')
         # replicas 0 and 2 should be there (replica 0 goes to ufs2)
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["0 ", "ufs2", self.testfile])
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["2 " + self.testresc, self.testfile])
@@ -4653,7 +4777,7 @@ class Test_Resource_MultiLayered(ChunkyDevTest, ResourceSuite, unittest.TestCase
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc passthru", 'STDOUT_SINGLELINE', 'passthru')
             admin_session.assert_icommand("iadmin mkresc pass2Resc passthru", 'STDOUT_SINGLELINE', 'passthru')
-            admin_session.assert_icommand("iadmin mkresc rrResc roundrobin", 'STDOUT_SINGLELINE', 'roundrobin')
+            admin_session.assert_icommand("iadmin mkresc rrResc random", 'STDOUT_SINGLELINE', 'random')
             admin_session.assert_icommand("iadmin mkresc unix1Resc 'unixfilesystem' " + test.settings.HOSTNAME_1 + ":" +
                                           irods_config.irods_directory + "/unix1RescVault", 'STDOUT_SINGLELINE', 'unixfilesystem')
             admin_session.assert_icommand("iadmin mkresc unix2Resc 'unixfilesystem' " + test.settings.HOSTNAME_2 + ":" +

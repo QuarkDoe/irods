@@ -216,6 +216,7 @@ NEW_ERROR(SYS_SERVICE_ROLE_NOT_SUPPORTED,              -160000)
 NEW_ERROR(SYS_SOCK_WRITE_ERR,                          -161000)
 NEW_ERROR(SYS_SOCK_CONNECT_ERR,                        -162000)
 NEW_ERROR(SYS_OPERATION_IN_PROGRESS,                   -163000)
+NEW_ERROR(SYS_REPLICA_DOES_NOT_EXIST,                  -164000)
 /** @} */
 
 /* 300,000 - 499,000 - user input type error */
@@ -281,6 +282,8 @@ NEW_ERROR(USER_HASH_TYPE_MISMATCH,                     -380000)
 NEW_ERROR(USER_INVALID_CLIENT_ENVIRONMENT,             -390000)
 NEW_ERROR(USER_INSUFFICIENT_FREE_INODES,               -400000)
 NEW_ERROR(USER_FILE_SIZE_MISMATCH,                     -401000)
+NEW_ERROR(USER_INCOMPATIBLE_PARAMS,                    -402000)
+NEW_ERROR(USER_INVALID_REPLICA_INPUT,                  -403000)
 /** @} */
 
 /* 500,000 to 800,000 - file driver error */
@@ -833,6 +836,15 @@ NEW_ERROR(OOI_JSON_NO_ANSWER_ERR,                      -2208000)
 NEW_ERROR(OOI_JSON_TYPE_ERR,                           -2209000)
 NEW_ERROR(OOI_JSON_INX_OUT_OF_RANGE,                   -2210000)
 NEW_ERROR(OOI_REVID_NOT_FOUND,                         -2211000)
+/** @} */
+
+/* Deprecation error codes */
+/** @defgroup deprecation_errors DEPRECATION ERRORs
+ *  @ingroup error_codes
+ *  ERROR Code Range 3,000,000 to 3,099,000
+ * @{
+ */
+NEW_ERROR(DEPRECATED_PARAMETER,                        -3000000)
 /** @} */
 
 /* XML parsing and TDS error */
