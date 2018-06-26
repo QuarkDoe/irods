@@ -280,7 +280,7 @@ class ResourceSuite(ResourceBase):
         chain_pem_path = os.path.join(self.admin.local_session_dir, 'chain.pem')
         dhparams_pem_path = os.path.join(self.admin.local_session_dir, 'dhparams.pem')
 
-        lib.execute_command('openssl genrsa -out %s' % (server_key_path))
+        lib.execute_command(['openssl', 'genrsa', '-out', server_key_path, '1024'])
         #lib.execute_command('openssl req -batch -new -key %s -out %s' % (server_key_path, server_csr_path))
         lib.execute_command('openssl req -batch -new -x509 -key %s -out %s -days 365' % (server_key_path, chain_pem_path))
         lib.execute_command('openssl dhparam -2 -out %s 1024' % (dhparams_pem_path))  # normally 2048, but smaller size here for speed
@@ -322,7 +322,7 @@ class ResourceSuite(ResourceBase):
         chain_pem_path = os.path.join(self.admin.local_session_dir, 'chain.pem')
         dhparams_pem_path = os.path.join(self.admin.local_session_dir, 'dhparams.pem')
 
-        lib.execute_command('openssl genrsa -out %s' % (server_key_path))
+        lib.execute_command(['openssl', 'genrsa', '-out', server_key_path, '1024'])
         #lib.execute_command('openssl req -batch -new -key %s -out %s' % (server_key_path, server_csr_path))
         lib.execute_command('openssl req -batch -new -x509 -key %s -out %s -days 365' % (server_key_path, chain_pem_path))
         lib.execute_command('openssl dhparam -2 -out %s 1024' % (dhparams_pem_path))  # normally 2048, but smaller size here for speed
@@ -973,7 +973,7 @@ class ResourceSuite(ResourceBase):
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)  # creates replica
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed twice
-        self.admin.assert_icommand("irm -n 0 " + self.testfile)  # remove original from grid
+        self.admin.assert_icommand("irm -n 0 " + self.testfile, 'STDOUT', 'deprecated')  # remove original from grid
         # replica 1 should be there
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["1 " + self.testresc, self.testfile])
         self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
@@ -1139,7 +1139,7 @@ class ResourceSuite(ResourceBase):
         self.admin.assert_icommand("iadmin modresc {itrimReplResc} rebalance".format(**locals()), 'EMPTY')
 
         # trim the file
-        rc, _, _ = self.user0.assert_icommand("itrim -S {resc2} {filename}".format(**locals()), 'STDERR_SINGLELINE', "ERROR: trimUtil: trim error")
+        rc, _, _ = self.user0.assert_icommand("itrim -n0 {resc2} {filename}".format(**locals()), 'STDERR', 'status = -402000 USER_INCOMPATIBLE_PARAMS')
         self.assertNotEqual(rc, 0, 'itrim should have non-zero error code on trim failure')
 
         #local cleanup

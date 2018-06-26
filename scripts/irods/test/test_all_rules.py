@@ -12,6 +12,7 @@ else:
 
 from .. import lib
 from ..configuration import IrodsConfig
+from ..controller import IrodsController
 from . import metaclass_unittest_test_case_generator
 from . import resource_suite
 from . import session
@@ -522,93 +523,108 @@ output ruleExecOut
         self.rods_session.assert_icommand(
             '''irule "*Err = errorcode(msiExecCmd('cmd', '', '', '', '', *Out)); msiGetStderrInExecCmdOut(*Out, *Stderr); writeLine('stdout', 'stderr: *Err*Stderr')" null ruleExecOut''', 'STDOUT_SINGLELINE', "stderr")
 
+    @unittest.skip('Delete this line upon resolving #3957')
     @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only applicable for python REP')
     def test_writeLine_config_last_3477(self):
         irods_config = IrodsConfig()
         orig = irods_config.server_config['plugin_configuration']['rule_engines']
-        irods_config.server_config['plugin_configuration']['rule_engines'] = orig + [{
-                'instance_name': 'irods_rule_engine_plugin-irods_rule_language-instance',
-                'plugin_name': 'irods_rule_engine_plugin-irods_rule_language',
-                'plugin_specific_configuration': {
-                    "re_data_variable_mapping_set": [
-                        "core"
-                    ],
-                    "re_function_name_mapping_set": [
-                        "core"
-                    ],
-                    "re_rulebase_set": [
-                        "core"
-                    ],
-                    "regexes_for_supported_peps": [
-                        "ac[^ ]*",
-                        "msi[^ ]*",
-                        "[^ ]*pep_[^ ]*_(pre|post)"
-                    ]
-                },
-                "shared_memory_instance": "irods_rule_language_rule_engine"
-            }]
-        irods_config.commit(irods_config.server_config, irods_config.server_config_path, make_backup=True)
+        try:
+            irods_config.server_config['plugin_configuration']['rule_engines'] = orig + [{
+                    'instance_name': 'irods_rule_engine_plugin-irods_rule_language-instance',
+                    'plugin_name': 'irods_rule_engine_plugin-irods_rule_language',
+                    'plugin_specific_configuration': {
+                        "re_data_variable_mapping_set": [
+                            "core"
+                        ],
+                        "re_function_name_mapping_set": [
+                            "core"
+                        ],
+                        "re_rulebase_set": [
+                            "core"
+                        ],
+                        "regexes_for_supported_peps": [
+                            "ac[^ ]*",
+                            "msi[^ ]*",
+                            "[^ ]*pep_[^ ]*_(pre|post)"
+                        ]
+                    },
+                    "shared_memory_instance": "irods_rule_language_rule_engine"
+                }]
+            irods_config.commit(irods_config.server_config, irods_config.server_config_path, make_backup=True)
 
-        rule_file = "test_rule_file.r"
-        rule_string = '''def main(args, cb, rei):
-  cb.writeLine("stdout", "from_prep")
+            rule_file = "test_rule_file.r"
+            rule_string = '''def main(args, cb, rei):
+    cb.writeLine("stdout", "from_prep")
 
 input null
 output ruleExecOut
 '''
-        with open(rule_file, 'wt') as f:
-            print(rule_string, file=f, end='')
-  
-        self.rods_session.assert_icommand(
-            '''irule -F test_rule_file.r''', 'STDOUT_SINGLELINE', "from_prep")
+            with open(rule_file, 'wt') as f:
+                print(rule_string, file=f, end='')
 
-        irods_config.server_config['plugin_configuration']['rule_engines'] = orig
-        irods_config.commit(irods_config.server_config, irods_config.server_config_path, make_backup=True)
+            self.rods_session.assert_icommand(
+                '''irule -F test_rule_file.r''', 'STDOUT_SINGLELINE', "from_prep")
+        finally:
 
+            IrodsController().stop()
+
+            irods_config.server_config['plugin_configuration']['rule_engines'] = orig
+            irods_config.commit(irods_config.server_config, irods_config.server_config_path, make_backup=True)
+
+            IrodsController().start()
+
+    @unittest.skip('Delete this line upon resolving #3957')
     @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only applicable for python REP')
     def test_writeLine_config_first_3477(self):
         irods_config = IrodsConfig()
         orig = irods_config.server_config['plugin_configuration']['rule_engines']
-        irods_config.server_config['plugin_configuration']['rule_engines'] = [{
-                'instance_name': 'irods_rule_engine_plugin-irods_rule_language-instance',
-                'plugin_name': 'irods_rule_engine_plugin-irods_rule_language',
-                'plugin_specific_configuration': {
-                    "re_data_variable_mapping_set": [
-                        "core"
-                    ],
-                    "re_function_name_mapping_set": [
-                        "core"
-                    ],
-                    "re_rulebase_set": [
-                        "core"
-                    ],
-                    "regexes_for_supported_peps": [
-                        "ac[^ ]*",
-                        "msi[^ ]*",
-                        "[^ ]*pep_[^ ]*_(pre|post)"
-                    ]
-                },
-                "shared_memory_instance": "irods_rule_language_rule_engine"
-            }] + orig
-        irods_config.commit(irods_config.server_config, irods_config.server_config_path, make_backup=True)
+        try:
+            irods_config.server_config['plugin_configuration']['rule_engines'] = [{
+                    'instance_name': 'irods_rule_engine_plugin-irods_rule_language-instance',
+                    'plugin_name': 'irods_rule_engine_plugin-irods_rule_language',
+                    'plugin_specific_configuration': {
+                        "re_data_variable_mapping_set": [
+                            "core"
+                        ],
+                        "re_function_name_mapping_set": [
+                            "core"
+                        ],
+                        "re_rulebase_set": [
+                            "core"
+                        ],
+                        "regexes_for_supported_peps": [
+                            "ac[^ ]*",
+                            "msi[^ ]*",
+                            "[^ ]*pep_[^ ]*_(pre|post)"
+                        ]
+                    },
+                    "shared_memory_instance": "irods_rule_language_rule_engine"
+                }] + orig
+            irods_config.commit(irods_config.server_config, irods_config.server_config_path, make_backup=True)
 
-        rule_file = "test_rule_file.r"
-        rule_string = '''def main(args, cb, rei):
-  cb.writeLine("stdout", "from_prep")
+            rule_file = "test_rule_file.r"
+            rule_string = '''def main(args, cb, rei):
+    cb.writeLine("stdout", "from_prep")
 
 input null
 output ruleExecOut
 '''
-        with open(rule_file, 'wt') as f:
-            print(rule_string, file=f, end='')
-  
-        self.rods_session.assert_icommand(
-            '''irule -r ''' + orig[0]["instance_name"] + ''' -F test_rule_file.r''', 'STDOUT_SINGLELINE', "from_prep")    
+            with open(rule_file, 'wt') as f:
+                print(rule_string, file=f, end='')
 
-        irods_config.server_config['plugin_configuration']['rule_engines'] = orig
-        irods_config.commit(irods_config.server_config, irods_config.server_config_path, make_backup=True)
+            self.rods_session.assert_icommand(
+                '''irule -r ''' + orig[0]["instance_name"] + ''' -F test_rule_file.r''', 'STDOUT_SINGLELINE', "from_prep")
+        finally:
+
+            IrodsController().stop()
+
+            irods_config.server_config['plugin_configuration']['rule_engines'] = orig
+            irods_config.commit(irods_config.server_config, irods_config.server_config_path, make_backup=True)
+
+            IrodsController().start()
 
 
+    @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only applicable for irods_rule_language REP')
     def test_msiServerMonPerf_default_3736(self):
         rule_file="test_msiServerMonPerf.r"
         rule_string= '''
@@ -625,6 +641,7 @@ OUTPUT ruleExecOut
 
         self.rods_session.assert_icommand("irule -F " + rule_file);
 
+    @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only applicable for irods_rule_language REP')
     def test_msiCheckAccess_3309(self):
 
         data_obj_rule_file="test_msiCheckAccess_data_obj_3309.r"
