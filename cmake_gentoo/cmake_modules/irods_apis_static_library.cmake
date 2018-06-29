@@ -424,6 +424,7 @@ set(
 	${IRODS_SOURCE_DIR}/lib/core/include/socket_wrapper.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/sslSockComm.h
 	${IRODS_SOURCE_DIR}/lib/core/include/stringOpr.h
+	${CMAKE_SOURCE_DIR}/lib/core/include/termiosUtil.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/trimUtil.h
 )
 
