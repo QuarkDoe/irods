@@ -33,8 +33,7 @@ set(IRODS_RESOURCE_PLUGIN_REPLICATION_SOURCES
 	${IRODS_SOURCE_DIR}/plugins/resources/replication/irods_object_oper.cpp
 	${IRODS_SOURCE_DIR}/plugins/resources/replication/irods_replicator.cpp
 	${IRODS_SOURCE_DIR}/plugins/resources/replication/irods_repl_rebalance.cpp
-	${IRODS_SOURCE_DIR}/plugins/resources/replication/irods_repl_retry.cpp	
-	${IRODS_SOURCE_DIR}/plugins/resources/replication/irods_unlink_replicator.cpp
+	${IRODS_SOURCE_DIR}/plugins/resources/replication/irods_repl_retry.cpp
 	${IRODS_SOURCE_DIR}/plugins/resources/replication/librepl.cpp
 )
 set(
