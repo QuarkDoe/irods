@@ -10,7 +10,6 @@ else:
 
 from .resource_suite import ResourceBase
 from .. import lib
-from .. import test
 
 class Test_iPut_Options(ResourceBase, unittest.TestCase):
 
@@ -108,42 +107,69 @@ class Test_iPut_Options(ResourceBase, unittest.TestCase):
 
             os.chmod(os.path.join(bad_sub_dir), 0)
 
-            self.admin.assert_icommand('iput -r ' + test_dir, 'STDERR_SINGLELINE', 'Permission denied')
-            self.admin.assert_icommand('ils test_dir', 'STDOUT_SINGLELINE', 'good_sub_dir')
-            self.admin.assert_icommand('ils test_dir/good_sub_dir', 'STDOUT_SINGLELINE', 'a.txt')
+            # Issue 3988: the iput -r will fail during prescan, which means
+            # that no data transfer will occur at all. The ils command below
+            # should therefore fail.
+            cmd = 'iput -r ' + test_dir
+            _,stderr,_ = self.admin.run_icommand( cmd )
+            self.assertIn( 'directory error: Permission denied',
+                           stderr,
+                           "{0}: Expected stderr: \"...{1}...\", got: \"{2}\"".format(cmd, 'directory error: Permission denied', stderr))
+
+            self.admin.assert_icommand('ils test_dir', 'STDOUT_SINGLELINE', 'test_dir')
+            self.admin.assert_icommand_fail('ils test_dir/good_sub_dir', 'STDOUT_SINGLELINE', 'a.txt')
+
         finally:
             os.chmod(bad_sub_dir, stat.S_IRWXU)
             os.chmod(os.path.join(test_dir, "bad_file"), stat.S_IWRITE)
             os.chmod(os.path.join(bad_sub_dir, "bad_file"), stat.S_IWRITE)
             os.chmod(os.path.join(good_sub_dir, "bad_file"), stat.S_IWRITE)
 
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
-    def test_iput_ignore_symbolic_links__issue_3072(self):
-        # The root directory where all files and symlinks will be stored.
-        parent_dir = 'issue_3072_parent_dir'
-        parent_dir_path = os.path.join(self.admin.local_session_dir, parent_dir)
-        os.mkdir(parent_dir_path)
+    #################################################################
+    # This iput involves a commandline parameter which is a symbolic
+    # link to itself.
+    #############################
+    def test_iput_symlink_to_self_on_commandline_4016(self):
 
-        filename = "test_file.txt"
-        filename_path = os.path.join(parent_dir_path, filename)
-        lib.make_file(filename_path, 1024)
+        ##################################
+        # All of these tests (should) produce the same behavior and results:
+        ########
+        test_list = [
+                        'iput -r {symtoself_path}',
+                        'iput -r {symtoself_path} {target_collection_path}',
+                        'iput -r {goodfile_path} {symtoself_path} {target_collection_path}',
+                    ]
 
-        # This directory will hold the symlink.
-        child_dir_path = os.path.join(parent_dir_path, 'child_dir')
-        os.mkdir(child_dir_path)
+        goodfile = 'goodfile'
+        goodfile_path = os.path.join(self.user0.local_session_dir, goodfile)
+        lib.make_file(goodfile_path, 1)
 
-        # Create a symlink.
-        dangling_symlink = 'dangling.test_file.txt'
-        dangling_symlink_path = os.path.join(child_dir_path, dangling_symlink)
-        os.symlink(filename_path, dangling_symlink_path)
+        symtoself = 'symtoself';
+        symtoself_path = os.path.join(self.user0.local_session_dir, symtoself)
+        lib.execute_command(['ln', '-s', symtoself, symtoself_path])
 
-        # Break the symlink by renaming the target file.
-        os.rename(filename_path, os.path.join(parent_dir_path, 'renamed.test_file.txt'))
+        base_name = 'iput_symlink_to_self_on_commandline_4016'
+        target_collection = 'target_' + base_name
+        target_collection_path = '{self.user0.session_collection}/{target_collection}'.format(**locals())
+        self.user0.run_icommand('imkdir {target_collection_path}'.format(**locals()))
 
-        # Recursively put all directories and files under the
-        # parent directory. Symlinks should be completely ignored.
-        self.admin.assert_icommand('iput -r --link {0}'.format(parent_dir_path))
+        ##################################
+        # Iterate through each of the tests:
+        ########
+        for teststring in test_list:
 
-        # Fail if the dangling symlink was stored in iRODS.
-        self.admin.assert_icommand_fail('ils -lr {0}'.format(parent_dir), 'STDOUT', dangling_symlink)
+            # Run the command:
+            cmd = teststring.format(**locals())
+            stdout,stderr,_ = self.user0.run_icommand(cmd)
+
+            estr = 'Too many levels of symbolic links:'
+            self.assertIn(estr, stderr, '{cmd}: Expected stderr: "...{estr}...", got: "{stderr}"'.format(**locals()))
+
+            # Make sure the usage message is not present in the output
+            self.assertNotIn('Usage:', stdout, '{cmd}: Not expected in stdout: "Usage:", got: "{stdout}"'.format(**locals()))
+
+            # Make sure neither the loop link nor regular file is anywhere in this collection tree:
+            cmd = 'ils -lr {self.user0.session_collection}'.format(**locals())
+            self.user0.assert_icommand_fail( cmd, 'STDOUT_SINGLELINE', symtoself );
+            self.user0.assert_icommand_fail( cmd, 'STDOUT_SINGLELINE', goodfile );
 
