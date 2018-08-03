@@ -10,6 +10,7 @@ import sys
 import tempfile
 from threading import Timer
 import time
+import ustrings
 
 if sys.version_info < (2, 7):
     import unittest2 as unittest
@@ -77,7 +78,7 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         dirname = 'test_redirect_map_regeneration__3904'
         lib.create_directory_of_small_files(dirname, filecount)
 
-        self.admin.assert_icommand(['iput', '-r', dirname])
+        self.admin.assert_icommand(['iput', '-r', dirname], "STDOUT_SINGLELINE", ustrings.recurse_ok_string())
 
         # Count the number of recipients of replicas
         hier_ctr = {}
@@ -1792,7 +1793,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         dir_name = 'test_irsync_for_collection__2976'
         dir_name_rsync = dir_name + '_rsync'
         lib.create_directory_of_small_files(dir_name,10)
-        self.admin.assert_icommand('iput -rR demoResc ' + dir_name)
+        self.admin.assert_icommand('iput -rR demoResc ' + dir_name, "STDOUT_SINGLELINE", ustrings.recurse_ok_string())
 
         logical_path = os.path.join( self.admin.session_collection, dir_name )
         logical_path_rsync = os.path.join( self.admin.session_collection, dir_name_rsync )
@@ -1805,7 +1806,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         dir_name = 'test_irsync_for_collection__2976'
         dir_name_rsync = dir_name + '_rsync'
         lib.create_directory_of_small_files(dir_name,10)
-        self.admin.assert_icommand('iput -rR demoResc ' + dir_name)
+        self.admin.assert_icommand('iput -rR demoResc ' + dir_name, "STDOUT_SINGLELINE", ustrings.recurse_ok_string())
 
         logical_path = os.path.join( self.admin.session_collection, dir_name )
         logical_path_rsync = os.path.join( self.admin.session_collection, dir_name_rsync )
@@ -4112,6 +4113,39 @@ OUTPUT ruleExecOut
         # local cleanup
         if os.path.exists(filepath):
             os.unlink(filepath)
+
+    def test_rebalance_invocation_timestamp__3665(self):
+        # prepare out of balance tree with enough objects to trigger rebalance paging (>500)
+        localdir = '3665_tmpdir'
+        shutil.rmtree(localdir, ignore_errors=True)
+        lib.make_large_local_tmp_dir(dir_name=localdir, file_count=600, file_size=5)
+        self.admin.assert_icommand(['iput', '-r', localdir], "STDOUT_SINGLELINE", ustrings.recurse_ok_string())
+        self.admin.assert_icommand(['iadmin', 'mkresc', 'newchild', 'unixfilesystem', test.settings.HOSTNAME_1+':/tmp/newchildVault'], 'STDOUT_SINGLELINE', 'unixfilesystem')
+        self.admin.assert_icommand(['iadmin','addchildtoresc','demoResc','newchild'])
+        # run rebalance with concurrent, interleaved put/trim of new file
+        self.admin.assert_icommand(['ichmod','-r','own','rods',self.admin.session_collection])
+        self.admin.assert_icommand(['ichmod','-r','inherit',self.admin.session_collection])
+        laterfilesize = 300
+        laterfile = '3665_laterfile'
+        lib.make_file(laterfile, laterfilesize)
+        put_thread = Timer(2, subprocess.check_call, [('iput', '-R', 'demoResc', laterfile, self.admin.session_collection)])
+        trim_thread = Timer(3, subprocess.check_call, [('itrim', '-n3', self.admin.session_collection + '/' + laterfile)])
+        put_thread.start()
+        trim_thread.start()
+        self.admin.assert_icommand(['iadmin','modresc','demoResc','rebalance'])
+        put_thread.join()
+        trim_thread.join()
+        # new file should not be balanced (rebalance should have skipped it due to it being newer)
+        self.admin.assert_icommand(['ils', '-l', laterfile], 'STDOUT_SINGLELINE', [str(laterfilesize), ' 0 ', laterfile])
+        self.admin.assert_icommand(['ils', '-l', laterfile], 'STDOUT_SINGLELINE', [str(laterfilesize), ' 1 ', laterfile])
+        self.admin.assert_icommand(['ils', '-l', laterfile], 'STDOUT_SINGLELINE', [str(laterfilesize), ' 2 ', laterfile])
+        self.admin.assert_icommand_fail(['ils', '-l', laterfile], 'STDOUT_SINGLELINE', [str(laterfilesize), ' 3 ', laterfile])
+        # cleanup
+        os.unlink(laterfile)
+        shutil.rmtree(localdir, ignore_errors=True)
+        self.admin.assert_icommand(['iadmin','rmchildfromresc','demoResc','newchild'])
+        self.admin.assert_icommand(['itrim', '-Snewchild', '-r', '/tempZone'], 'STDOUT_SINGLELINE', 'Total size trimmed')
+        self.admin.assert_icommand(['iadmin','rmresc','newchild'])
 
     def test_rebalance_different_sized_replicas__3486(self):
         filename = 'test_rebalance_different_sized_replicas__3486'
