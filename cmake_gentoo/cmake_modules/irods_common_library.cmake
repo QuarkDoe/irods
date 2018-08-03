@@ -20,6 +20,7 @@ set(
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_log.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_pack_table.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_parse_command_line_options.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/irods_path_recursion.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_pluggable_auth_scheme.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_plugin_name_generator.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_random.cpp

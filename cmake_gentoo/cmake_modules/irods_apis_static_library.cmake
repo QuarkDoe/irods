@@ -41,6 +41,7 @@ set(
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_pack_table.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_pam_auth_object.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_parse_command_line_options.cpp
+	${IRODS_SOURCE_DIR}/lib/core/src/irods_path_recursion.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_pluggable_auth_scheme.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_plugin_name_generator.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_random.cpp
@@ -361,6 +362,7 @@ set(
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_pack_table.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_pam_auth_object.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_parse_command_line_options.hpp
+	${IRODS_SOURCE_DIR}/lib/core/include/irods_path_recursion.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_pluggable_auth_scheme.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_plugin_base.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_plugin_context.hpp
