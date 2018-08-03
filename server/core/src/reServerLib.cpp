@@ -221,9 +221,15 @@ getNextQueuedRuleExec( genQueryOut_t **inGenQueryOut,
         exeTimeStr = &exeTime->value[exeTime->len * i];
         ruleExecIdStr =  &ruleExecId->value[ruleExecId->len * i];
 
-        if ( ( jobType & RE_FAILED_STATUS ) == 0 &&
-                strcmp( exeStatusStr, RE_FAILED ) == 0 ) {
-            /* failed request */
+        // jobType indicates the type of jobs being executed on the queue
+        if (0 != (jobType & RE_FAILED_STATUS) &&
+            0 != strcmp(exeStatusStr, RE_FAILED)) {
+            // Only processing failed execution requests
+            continue;
+        }
+        else if (0 == (jobType & RE_FAILED_STATUS) &&
+                 0 == strcmp(exeStatusStr, RE_FAILED)) {
+            // Not processing failed execution requests
             continue;
         }
         else if ( atoi( exeTimeStr ) > time( 0 ) ) {
@@ -409,7 +415,15 @@ runQueuedRuleExec( rcComm_t *rcComm, reExec_t *reExec,
     int thrInx;
 
     inx = -1;
-    while ( time( NULL ) <= endTime && ( thrInx = allocReThr( reExec ) ) >= 0 ) {
+    while ( time( NULL ) <= endTime ) {
+	if ( ( thrInx = allocReThr( reExec ) ) < 0 ) {
+	    if ( reExec->doFork == 0 || waitAndFreeReThr( rcComm, reExec ) < 0 ) {
+		break;
+	    }
+	    /* another job can be run */
+	    continue;
+	}
+
         myRuleExecInp = &reExec->reExecProc[thrInx].ruleExecSubmitInp;
         if ( ( inx = getNextQueuedRuleExec( genQueryOut, inx + 1,
                                             myRuleExecInp, reExec, jobType ) ) < 0 ) {
