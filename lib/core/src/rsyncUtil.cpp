@@ -46,6 +46,13 @@ rsyncUtil( rcComm_t *conn, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs,
     int status = 0;
     int savedStatus = 0;
 
+    // Issue 4006: disallow mixed files and directory sources with the
+    // recursive (-r) option.
+    status = irods::disallow_file_dir_mix_on_command_line(myRodsArgs, rodsPathInp );
+    if ( status < 0 ) {
+        return status;
+    }
+
     savedStatus = resolveRodsTarget( conn, rodsPathInp, RSYNC_OPR );
     if ( savedStatus < 0 ) {
         rodsLogError( LOG_ERROR, savedStatus, "rsyncUtil: resolveRodsTarget" );
@@ -113,6 +120,8 @@ rsyncUtil( rcComm_t *conn, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs,
             }
 
             dataObjOprInp.createMode = rodsPathInp->srcPath[i].objMode;
+            // Issue 4048: Make sure targpath->objState is set correctly
+            getRodsObjType( conn, targPath );
             status = rsyncFileToDataUtil( conn, srcPath, targPath,
                                           myRodsArgs, &dataObjOprInp );
         }
