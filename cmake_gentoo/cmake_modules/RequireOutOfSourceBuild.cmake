@@ -7,10 +7,6 @@ get_filename_component(_cm_src "${CMAKE_SOURCE_DIR}" ABSOLUTE)
 get_filename_component(_ir_src "${IRODS_SOURCE_DIR}" ABSOLUTE)
 get_filename_component(_cm_bin "${CMAKE_BINARY_DIR}" ABSOLUTE)
 
-# message( STATUS "_cm_src:${_cm_src}" )
-# message( STATUS "_ir_src:${_ir_src}" )
-# message( STATUS "_cm_bin:${_cm_bin}" )
-
 if(
 	EXISTS "${_cm_bin}/CMakeLists.txt"
 	OR _cm_src EQUAL _cm_bin
