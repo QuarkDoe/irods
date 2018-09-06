@@ -98,10 +98,17 @@ install(
 	${IRODS_SOURCE_DIR}/msiExecCmd_bin/irodsServerMonPerf
 	${IRODS_SOURCE_DIR}/msiExecCmd_bin/test_execstream.py
 	${IRODS_SOURCE_DIR}/msiExecCmd_bin/hello
-	${IRODS_SOURCE_DIR}/msiExecCmd_bin/univMSSInterface.sh
 	DESTINATION ${IRODS_HOME_DIRECTORY}/msiExecCmd_bin
 	COMPONENT irods-server
 	PERMISSIONS OWNER_READ OWNER_EXECUTE GROUP_READ WORLD_READ
+)
+
+install(
+	FILES
+	${IRODS_SOURCE_DIR}/msiExecCmd_bin/univMSSInterface.sh.template
+	DESTINATION ${IRODS_HOME_DIRECTORY}/msiExecCmd_bin
+	COMPONENT irods-server
+	PERMISSIONS OWNER_READ GROUP_READ WORLD_READ
 )
 
 install(
