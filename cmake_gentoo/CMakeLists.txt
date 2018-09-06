@@ -37,11 +37,10 @@ set( IRODS_VERSION_MINOR "2" )
 set( IRODS_VERSION_PATCH "3" )
 set( IRODS_VERSION "${IRODS_VERSION_MAJOR}.${IRODS_VERSION_MINOR}.${IRODS_VERSION_PATCH}" )
 set( IRODS_CXX_STANDARD "14" )
-# set( IRODS_PLATFORM_STRING linux_platform )
+
 set(
 	IRODS_COMPILE_DEFINITIONS
 	linux_platform
-	# ${IRODS_PLATFORM_STRING}
 	_LARGEFILE_SOURCE
 	_FILE_OFFSET_BITS=64
 	_LARGE_FILES
@@ -124,7 +123,6 @@ add_custom_command(
 )
 
 set_source_files_properties(
-#  ${CMAKE_SOURCE_DIR}/server/core/src/irods_server_control_plane.cpp
 	${IRODS_SOURCE_DIR}/lib/core/src/irods_server_properties.cpp
 	PROPERTIES
 	OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/lib/core/include/server_control_plane_command.hpp
@@ -150,8 +148,6 @@ configure_file(
 	@ONLY
 )
 
-# include( DefinePackageVariables )
-
 include( irods_common_library )
 include( irods_plugin_dependencies_library )
 include( irods_client_library )
@@ -163,7 +159,3 @@ if( BUILD_SERVER )
 	include( irods_plugins )
 	include( irods_files )
 endif( BUILD_SERVER )
-
-# include( CPack )
-
-# message( FATAL_ERROR "END OF CMAKE" )
