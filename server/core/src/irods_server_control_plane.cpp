@@ -30,6 +30,9 @@
 #include <unistd.h>
 
 namespace irods {
+
+    const static int _ZERO = 0;
+
     static void ctrl_plane_sleep(
         int _s,
         int _ms ) {
@@ -69,7 +72,7 @@ namespace irods {
         zmq::socket_t  zmq_skt( zmq_ctx, ZMQ_REQ );
         zmq_skt.setsockopt( ZMQ_RCVTIMEO, &time_out, sizeof( time_out ) );
         zmq_skt.setsockopt( ZMQ_SNDTIMEO, &time_out, sizeof( time_out ) );
-        zmq_skt.setsockopt( ZMQ_LINGER, 0, 0 );
+        zmq_skt.setsockopt( ZMQ_LINGER, &_ZERO, sizeof( _ZERO ) );
 
         // this is the client so we connect rather than bind
         std::string conn_str( "tcp://" );
@@ -728,6 +731,7 @@ namespace irods {
             return;
         }
 
+
         while ( true ) {
             try {
                 zmq::context_t zmq_ctx( 1 );
@@ -736,7 +740,7 @@ namespace irods {
                 int time_out = SERVER_CONTROL_POLLING_TIME_MILLI_SEC;
                 zmq_skt.setsockopt( ZMQ_RCVTIMEO, &time_out, sizeof( time_out ) );
                 zmq_skt.setsockopt( ZMQ_SNDTIMEO, &time_out, sizeof( time_out ) );
-                zmq_skt.setsockopt( ZMQ_LINGER, 0, 0 );
+                zmq_skt.setsockopt( ZMQ_LINGER, &_ZERO, sizeof( _ZERO ) );
 
                 std::stringstream port_sstr;
                 port_sstr << port;
