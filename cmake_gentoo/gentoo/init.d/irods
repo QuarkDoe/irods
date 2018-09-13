@@ -4,7 +4,7 @@
 description="iRODS service"
 
 depend(){
-	need localmount, net
+	need localmount net
 }
 
 checkconfig(){
