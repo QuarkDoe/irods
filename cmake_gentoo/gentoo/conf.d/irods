@@ -5,3 +5,4 @@ IRODS_USER=irods
 IRODS_GROUP=irods
 IRODS_HOME=/var/lib/irods
 IRODS_CTL=${IRODS_HOME}/irodsctl
+SU_SHELL_OPTS=-l

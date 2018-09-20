@@ -11,11 +11,12 @@ install(
 	COMPONENT irods-server
 )
 
-install(
-	DIRECTORY
-	DESTINATION ${IRODS_ETC_DIR}/irods
-	COMPONENT irods-server
-)
+# new dir should be created by 'dodir' command in ebuild-script.
+#install(
+#	DIRECTORY
+#	DESTINATION ${IRODS_ETC_DIR}/irods
+#	COMPONENT irods-server
+#)
 
 install(
 	FILES
@@ -44,21 +45,24 @@ install(
 	PERMISSIONS OWNER_READ OWNER_EXECUTE GROUP_READ WORLD_READ
 )
 
-install(
-	FILES
-	${CMAKE_SOURCE_DIR}/gentoo/init.d/irods
-	DESTINATION ${IRODS_ETC_DIR}/init.d
-	COMPONENT irods-server
-	PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-)
+# init.d and conf.d files should installed from .ebuild using doinitd and doconfd.
+# See Gentoo Devmanual at https://devmanual.gentoo.org/tasks-reference/init-scripts/index.html
 
-install(
-	FILES
-	${CMAKE_SOURCE_DIR}/gentoo/conf.d/irods
-	DESTINATION ${IRODS_ETC_DIR}/conf.d
-	COMPONENT irods-server
-	PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
-)
+#install(
+#	FILES
+#	${CMAKE_SOURCE_DIR}/gentoo/init.d/irods
+#	DESTINATION ${IRODS_ETC_DIR}/init.d
+#	COMPONENT irods-server
+#	PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+#)
+
+#install(
+#	FILES
+#	${CMAKE_SOURCE_DIR}/gentoo/conf.d/irods
+#	DESTINATION ${IRODS_ETC_DIR}/conf.d
+#	COMPONENT irods-server
+#	PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+#)
 
 install(
 	FILES
