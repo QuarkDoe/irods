@@ -27,26 +27,20 @@ set(
 )
 
 set(
-	IRODS_AUTH_PLUGIN_COMPILE_DEFINITIONS_server
-	RODS_SERVER
-	ENABLE_RE
-)
-
-set(
 	IRODS_AUTH_PLUGIN_LINK_LIBRARIES_client
 	irods_client
 )
 
 set(
-	IRODS_AUTH_PLUGIN_LINK_LIBRARIES_server
-	irods_server
-)
-
-set(
 	IRODS_AUTH_PLUGIN_TYPES
 	client
-	server
 )
+
+if( BUILD_SERVER )
+	set( IRODS_AUTH_PLUGIN_COMPILE_DEFINITIONS_server RODS_SERVER ENABLE_RE )
+	set( IRODS_AUTH_PLUGIN_LINK_LIBRARIES_server irods_server )
+	list( APPEND IRODS_AUTH_PLUGIN_TYPES server )
+endif( BUILD_SERVER )
 
 foreach( PLUGIN ${IRODS_AUTH_PLUGINS} )
 	foreach( TYPE ${IRODS_AUTH_PLUGIN_TYPES} )

@@ -21,25 +21,20 @@ set(
 )
 
 set(
-	IRODS_NETWORK_COMPILE_DEFINITIONS_server
-	ENABLE_RE
-)
-
-set(
 	IRODS_NETWORK_LINK_LIBRARIES_client
 	irods_client
 )
 
 set(
-	IRODS_NETWORK_LINK_LIBRARIES_server
-	irods_server
-)
-
-set(
 	IRODS_NETWORK_PLUGIN_TYPES
 	client
-	server
 )
+
+if( BUILD_SERVER )
+	set( IRODS_NETWORK_COMPILE_DEFINITIONS_server ENABLE_RE )
+	set( IRODS_NETWORK_LINK_LIBRARIES_server irods_server )
+	list( APPEND IRODS_NETWORK_PLUGIN_TYPES server )
+endif( BUILD_SERVER )
 
 foreach(PLUGIN ${IRODS_NETWORK_PLUGINS})
 	foreach(TYPE ${IRODS_NETWORK_PLUGIN_TYPES})
