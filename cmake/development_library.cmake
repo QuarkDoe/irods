@@ -74,6 +74,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_plugin_base.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_plugin_context.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_plugin_name_generator.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/irods_query.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_random.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_serialization.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_server_properties.hpp
@@ -452,6 +453,7 @@ set(
   ${CMAKE_SOURCE_DIR}/server/core/include/irodsReServer.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irodsXmsgServer.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_api_calling_functions.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/irods_at_scope_exit.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_collection_object.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_data_object.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_database_constants.hpp
@@ -476,6 +478,7 @@ set(
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_resource_plugin_impostor.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_resource_redirect.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_resource_types.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/irods_rs_comm_query.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_server_api_call.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_server_api_table.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_server_control_plane.hpp
