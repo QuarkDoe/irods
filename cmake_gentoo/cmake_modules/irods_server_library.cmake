@@ -164,6 +164,7 @@ set(
 	${IRODS_SOURCE_DIR}/server/core/src/irods_resource_plugin.cpp
 	${IRODS_SOURCE_DIR}/server/core/src/irods_resource_plugin_impostor.cpp
 	${IRODS_SOURCE_DIR}/server/core/src/irods_resource_redirect.cpp
+	${IRODS_SOURCE_DIR}/server/core/src/irods_rs_comm_query.cpp
 	${IRODS_SOURCE_DIR}/server/core/src/irods_server_api_table.cpp
 	${IRODS_SOURCE_DIR}/server/core/src/irods_server_globals.cpp
 	${IRODS_SOURCE_DIR}/server/core/src/irods_server_negotiation.cpp

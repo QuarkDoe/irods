@@ -367,6 +367,7 @@ set(
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_plugin_base.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_plugin_context.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_plugin_name_generator.hpp
+	${IRODS_SOURCE_DIR}/lib/core/include/irods_query.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_random.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_serialization.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_server_properties.hpp
@@ -745,6 +746,7 @@ set(
 	${IRODS_SOURCE_DIR}/server/core/include/irodsReServer.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irodsXmsgServer.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_api_calling_functions.hpp
+	${IRODS_SOURCE_DIR}/server/core/include/irods_at_scope_exit.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_collection_object.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_data_object.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_database_constants.hpp
@@ -768,6 +770,7 @@ set(
 	${IRODS_SOURCE_DIR}/server/core/include/irods_resource_plugin_impostor.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_resource_redirect.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_resource_types.hpp
+	${IRODS_SOURCE_DIR}/server/core/include/irods_rs_comm_query.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_server_api_call.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_server_api_table.hpp
 	${IRODS_SOURCE_DIR}/server/core/include/irods_server_control_plane.hpp
