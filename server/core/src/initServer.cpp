@@ -564,6 +564,7 @@ cleanup() {
         /* close any opened server to server connection */
         disconnectAllSvrToSvrConn();
     }
+    irods::re_plugin_globals->global_re_mgr.call_stop_operations();
 }
 
 void
@@ -888,6 +889,11 @@ initRsCommWithStartupPack( rsComm_t *rsComm, startupPack_t *startupPack ) {
             return SYS_GETSTARTUP_PACK_ERR;
         }
         rsComm->irodsProt = ( irodsProt_t )atoi( tmpStr );
+
+        if (rsComm->irodsProt != NATIVE_PROT && rsComm->irodsProt != XML_PROT) {
+            rodsLog( LOG_NOTICE, "initRsCommWithStartupPack: Invalid protocol value.");
+            return SYS_GETSTARTUP_PACK_ERR;
+        }
 
         tmpStr = getenv( SP_RECONN_FLAG );
         if ( tmpStr == NULL ) {

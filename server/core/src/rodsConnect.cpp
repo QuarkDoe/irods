@@ -114,7 +114,7 @@ mkServerHost( char *myHostAddr, char *zoneName ) {
     tmpRodsServerHost = ( rodsServerHost_t* )malloc( sizeof( rodsServerHost_t ) );
     memset( tmpRodsServerHost, 0, sizeof( rodsServerHost_t ) );
 
-    /* XXXXX need to lookup the zone table when availiable */
+    /* XXXXX need to lookup the zone table when available */
     status = queHostName( tmpRodsServerHost, myHostAddr, 0 );
     if ( status < 0 ) {
         free( tmpRodsServerHost );
@@ -152,7 +152,7 @@ queAddr( rodsServerHost_t *rodsServerHost, char *myHostName ) {
         const int ret_get_canonical_name = get_canonical_name(myHostName, canonicalName, sizeof(canonicalName));
         if (ret_get_canonical_name != 0) {
             if ( ProcessType == SERVER_PT ) {
-                rodsLog( LOG_NOTICE,
+                rodsLog( LOG_ERROR,
                          "queAddr: get_canonical_name error for [%s], status [%d]",
                          myHostName, ret_get_canonical_name);
             }
@@ -160,8 +160,8 @@ queAddr( rodsServerHost_t *rodsServerHost, char *myHostName ) {
         }
         time_t afterTime = time( 0 );
         if ( afterTime - beforeTime >= 2 ) {
-            rodsLog( LOG_NOTICE,
-                     "WARNING WARNING: get_canonical_name of %s is taking %d sec. This could severely affect interactivity of your Rods system",
+            rodsLog( LOG_WARNING,
+                     "get_canonical_name of %s is taking %d seconds. This could severely affect the interactivity of your iRODS system.",
                      myHostName, afterTime - beforeTime );
             /* XXXXXX may want to mark resource down later */
         }
