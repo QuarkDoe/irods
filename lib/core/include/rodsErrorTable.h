@@ -219,6 +219,7 @@ NEW_ERROR(SYS_SOCK_WRITE_ERR,                          -161000)
 NEW_ERROR(SYS_SOCK_CONNECT_ERR,                        -162000)
 NEW_ERROR(SYS_OPERATION_IN_PROGRESS,                   -163000)
 NEW_ERROR(SYS_REPLICA_DOES_NOT_EXIST,                  -164000)
+NEW_ERROR(SYS_UNKNOWN_ERROR,                           -165000)
 /** @} */
 
 /* 300,000 - 499,000 - user input type error */
@@ -459,6 +460,7 @@ NEW_ERROR(CAT_INVALID_CHILD,                           -857000)
 NEW_ERROR(CAT_INVALID_OBJ_COUNT,                       -858000) // hcj
 NEW_ERROR(CAT_INVALID_RESOURCE_NAME,                   -859000) // JMC
 NEW_ERROR(CAT_STATEMENT_TABLE_FULL,                    -860000) // JMC
+NEW_ERROR(CAT_RESOURCE_NAME_LENGTH_EXCEEDED,           -861000)
 /** @} */
 
 /* 880,000 to 889,000  Deprecated  */
