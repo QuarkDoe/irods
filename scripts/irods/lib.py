@@ -308,7 +308,8 @@ def make_environment_dict(username, hostname, zone_name, use_ssl=True):
         'irods_maximum_size_for_single_buffer_in_megabytes': 32,
         'irods_default_number_of_transfer_threads': 4,
         'irods_maximum_number_of_transfer_threads': 64,
-        'irods_transfer_buffer_size_for_parallel_transfer_in_megabytes': 4
+        'irods_transfer_buffer_size_for_parallel_transfer_in_megabytes': 4,
+        'irods_connection_pool_refresh_time_in_seconds': 300
 
     }
     if use_ssl:
@@ -337,8 +338,7 @@ def get_file_size_by_path(path):
     return os.stat(path).st_size
 
 def write_to_log(log_path, message):
-    with open(log_path, 'at') as f:
-        print(message, file=f, end='')
+    pass
 
 def count_occurrences_of_string_in_log(log_path, string, start_index=0):
     with open(log_path) as f:

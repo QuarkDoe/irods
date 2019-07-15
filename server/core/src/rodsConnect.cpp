@@ -167,7 +167,7 @@ queueAddr( rodsServerHost_t *rodsServerHost, char *myHostName ) {
         const int ret_get_canonical_name = get_canonical_name(myHostName, canonicalName, sizeof(canonicalName));
         if (ret_get_canonical_name != 0) {
             if ( ProcessType == SERVER_PT ) {
-                rodsLog( LOG_NOTICE,
+                rodsLog( LOG_ERROR,
                          "queueAddr: get_canonical_name error for [%s], status [%d]",
                          myHostName, ret_get_canonical_name);
             }
@@ -175,8 +175,8 @@ queueAddr( rodsServerHost_t *rodsServerHost, char *myHostName ) {
         }
         time_t afterTime = time( 0 );
         if ( afterTime - beforeTime >= 2 ) {
-            rodsLog( LOG_NOTICE,
-                     "WARNING WARNING: get_canonical_name of %s is taking %d sec. This could severely affect interactivity of your Rods system",
+            rodsLog( LOG_WARNING,
+                     "get_canonical_name of %s is taking %d seconds. This could severely affect the interactivity of your iRODS system.",
                      myHostName, afterTime - beforeTime );
             /* XXXXXX may want to mark resource down later */
         }
@@ -486,9 +486,9 @@ resoAndConnHostByDataObjInfo( rsComm_t *rsComm, dataObjInfo_t *dataObjInfo,
 
 int
 printServerHost( rodsServerHost_t *myServerHost ) {
-    namespace exp = irods::experimental;
+    using log = irods::experimental::log;
 
-    std::vector<exp::log::key_value> server_info;
+    std::vector<log::key_value> server_info;
     hostName_t *tmpHostName;
     std::string hostname_label;
 
@@ -538,7 +538,7 @@ printServerHost( rodsServerHost_t *myServerHost ) {
 
     server_info.push_back({"port", std::to_string(static_cast<zoneInfo_t*>(myServerHost->zoneInfo)->portNum)});
 
-    exp::log::server::info(server_info);
+    log::server::info(server_info);
 
     return 0;
 }
@@ -550,9 +550,9 @@ printZoneInfo() {
 
     tmpZoneInfo = ZoneInfoHead;
 
-    namespace exp = irods::experimental;
+    using log = irods::experimental::log;
 
-    std::vector<exp::log::key_value> zone_info;
+    std::vector<log::key_value> zone_info;
 
 #ifdef SYSLOG
     rodsLog( LOG_NOTICE, "Zone Info:\n" );
@@ -618,7 +618,7 @@ printZoneInfo() {
             zone_info.push_back({"zone_info.slave_port", std::to_string(tmpZoneInfo->portNum)});
         }
 
-        exp::log::server::info(zone_info);
+        log::server::info(zone_info);
         zone_info.clear();
 
         tmpZoneInfo = tmpZoneInfo->next;
@@ -631,7 +631,7 @@ printZoneInfo() {
 #else /* SYSLOG */
         fprintf( stderr, "reHost:   %s\n\n", tmpRodsServerHost->hostName->name );
 #endif /* SYSLOG */
-        exp::log::server::info({{"re_host", tmpRodsServerHost->hostName->name}});
+        log::server::info({{"re_host", tmpRodsServerHost->hostName->name}});
     }
     else {
 #ifdef SYSLOG
@@ -639,7 +639,7 @@ printZoneInfo() {
 #else /* SYSLOG */
         fprintf( stderr, "reHost error" );
 #endif /* SYSLOG */
-        exp::log::server::info({{"re_host", "error"}});
+        log::server::info({{"re_host", "error"}});
     }
 
     return 0;

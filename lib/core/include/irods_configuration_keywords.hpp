@@ -43,10 +43,12 @@ namespace irods {
     const std::string CFG_LOG_LEVEL_KW{"log_level"};
     const std::string CFG_LOG_LEVEL_CATEGORY_LEGACY_KW{"legacy"};
     const std::string CFG_LOG_LEVEL_CATEGORY_SERVER_KW{"server"};
+    const std::string CFG_LOG_LEVEL_CATEGORY_AGENT_FACTORY_KW{"agent_factory"};
     const std::string CFG_LOG_LEVEL_CATEGORY_AGENT_KW{"agent"};
+    const std::string CFG_LOG_LEVEL_CATEGORY_DELAY_SERVER_KW{"delay_server"};
     const std::string CFG_LOG_LEVEL_CATEGORY_RESOURCE_KW{"resource"};
     const std::string CFG_LOG_LEVEL_CATEGORY_DATABASE_KW{"database"};
-    const std::string CFG_LOG_LEVEL_CATEGORY_AUTHORIZATION_KW{"authorization"};
+    const std::string CFG_LOG_LEVEL_CATEGORY_AUTHENTICATION_KW{"authentication"};
     const std::string CFG_LOG_LEVEL_CATEGORY_API_KW{"api"};
     const std::string CFG_LOG_LEVEL_CATEGORY_MICROSERVICE_KW{"microservice"};
     const std::string CFG_LOG_LEVEL_CATEGORY_NETWORK_KW{"network"};
@@ -132,6 +134,8 @@ namespace irods {
         "irods_maximum_number_of_transfer_threads" );
     const std::string CFG_IRODS_TRANS_BUFFER_SIZE_FOR_PARA_TRANS(
         "irods_transfer_buffer_size_for_parallel_transfer_in_megabytes" );
+    const std::string CFG_IRODS_CONNECTION_POOL_REFRESH_TIME(
+        "irods_connection_pool_refresh_time_in_seconds");
 
     // legacy ssl environment variables
     const std::string CFG_IRODS_SSL_CA_CERTIFICATE_PATH(

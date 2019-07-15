@@ -2,7 +2,9 @@ import os
 import re
 import stat
 import sys
+import shutil
 import ustrings
+import commands
 
 if sys.version_info < (2, 7):
     import unittest2 as unittest
@@ -10,14 +12,19 @@ else:
     import unittest
 
 from .resource_suite import ResourceBase
+from ..configuration import IrodsConfig
 from .. import lib
+from . import session
 
 class Test_iPut_Options(ResourceBase, unittest.TestCase):
 
     def setUp(self):
+        self.new_paths = []
         super(Test_iPut_Options, self).setUp()
 
     def tearDown(self):
+        for abs_path in self.new_paths:
+            shutil.rmtree(abs_path, ignore_errors = True)
         super(Test_iPut_Options, self).tearDown()
 
     def test_iput_options(self):
@@ -60,8 +67,18 @@ class Test_iPut_Options(ResourceBase, unittest.TestCase):
         self.admin.assert_icommand('imeta ls -d ' + self.admin.session_collection + '/file', 'STDOUT_SINGLELINE', 'units: u1')
 
     def test_iput_recursive_with_period__issue_2010(self):
-        self.user0.assert_icommand(['iput', '-r', './'], 'STDOUT_SINGLELINE', ustrings.recurse_ok_string())
-        self.user0.assert_icommand_fail('ils -l', 'STDOUT_SINGLELINE', '/.')
+        try:
+            new_dir = 'dir_for_test_iput_recursive_with_period_2010'
+            home_dir = IrodsConfig().irods_directory
+            save_dir = os.getcwd()
+            os.chdir(home_dir)
+            lib.make_deep_local_tmp_dir(new_dir, depth=5, files_per_level=30, file_size=57)
+            self.new_paths.append(os.path.abspath(new_dir))
+            os.chdir(new_dir)
+            self.user0.assert_icommand(['iput', '-r', './'], 'STDOUT_SINGLELINE', ustrings.recurse_ok_string())
+            self.user0.assert_icommand_fail('ils -l', 'STDOUT_SINGLELINE', '/.')
+        finally:
+            os.chdir(save_dir)
 
     def test_iput_checksum_zero_length_file__issue_3275(self):
         filename = 'test_iput_checksum_zero_length_file__issue_3275'
@@ -178,3 +195,41 @@ class Test_iPut_Options(ResourceBase, unittest.TestCase):
             self.user0.assert_icommand_fail( cmd, 'STDOUT_SINGLELINE', symtoself );
             self.user0.assert_icommand_fail( cmd, 'STDOUT_SINGLELINE', goodfile );
 
+class Test_iPut_Options_Issue_3883(ResourceBase, unittest.TestCase):
+
+    def setUp(self):
+        super(Test_iPut_Options_Issue_3883, self).setUp()
+
+        output = commands.getstatusoutput("hostname")
+        hostname = output[1]
+
+        # create a compound resource tree
+        self.admin.assert_icommand('iadmin mkresc compoundresc3883 compound', 'STDOUT_SINGLELINE', 'Creating')
+        self.admin.assert_icommand('iadmin mkresc cacheresc3883 unixfilesystem ' + hostname +
+                                   ':/tmp/irods/cacheresc3883', 'STDOUT_SINGLELINE', 'Creating')
+        self.admin.assert_icommand('iadmin mkresc archiveresc3883 unixfilesystem ' + hostname +
+                                   ':/tmp/irods/archiveresc3883', 'STDOUT_SINGLELINE', 'Creating')
+
+        # now connect the tree
+        self.admin.assert_icommand(['iadmin', 'addchildtoresc', 'compoundresc3883', 'cacheresc3883', 'cache'])
+        self.admin.assert_icommand(['iadmin', 'addchildtoresc', 'compoundresc3883', 'archiveresc3883', 'archive'])
+
+    def tearDown(self):
+
+        super(Test_iPut_Options_Issue_3883, self).tearDown()
+
+        with session.make_session_for_existing_admin() as admin_session:
+            admin_session.assert_icommand(['iadmin', 'rmchildfromresc', 'compoundresc3883', 'cacheresc3883'])
+            admin_session.assert_icommand(['iadmin', 'rmchildfromresc', 'compoundresc3883', 'archiveresc3883'])
+
+            admin_session.assert_icommand(['iadmin', 'rmresc', 'compoundresc3883'])
+            admin_session.assert_icommand(['iadmin', 'rmresc', 'cacheresc3883'])
+            admin_session.assert_icommand(['iadmin', 'rmresc', 'archiveresc3883'])
+
+
+    def test_iput_zero_length_file_with_purge_and_checksum_3883(self):
+        filename = 'test_iput_zero_length_file_with_purge_and_checksum_3883'
+        lib.touch(filename)
+        self.user0.assert_icommand(['iput', '-R', 'compoundresc3883', '--purgec', '-k', filename])
+        self.user0.assert_icommand(['ils', '-L'], 'STDOUT_SINGLELINE', 'sha2:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=')
+        os.unlink(filename)

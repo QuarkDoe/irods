@@ -230,6 +230,8 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
                                    ("pt"), 'STDOUT_SINGLELINE', "Creating")
         self.admin.assert_icommand("iadmin mkresc %s passthru" %
                                    ("the_child"), 'STDOUT_SINGLELINE', "Creating")
+        self.admin.assert_icommand("iadmin mkresc %s passthru" %
+                                   ("grandchild"), 'STDOUT_SINGLELINE', "Creating")
         # bad parent
         self.admin.assert_icommand("iadmin addchildtoresc non_existent_resource %s" %
                                    ("pt"), 'STDERR_SINGLELINE', "CAT_INVALID_RESOURCE")
@@ -239,8 +241,15 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
         # duplicate parent
         self.admin.assert_icommand("iadmin addchildtoresc pt the_child")
         self.admin.assert_icommand("iadmin addchildtoresc pt the_child", 'STDERR_SINGLELINE', "CHILD_HAS_PARENT")
+        # parent and child are the same
+        self.admin.assert_icommand("iadmin addchildtoresc pt pt", 'STDERR_SINGLELINE', "HIERARCHY_ERROR")
+        # adding ancestor as a child to a descendant
+        self.admin.assert_icommand("iadmin addchildtoresc the_child grandchild")
+        self.admin.assert_icommand("iadmin addchildtoresc grandchild pt", 'STDERR_SINGLELINE', "HIERARCHY_ERROR")
         # cleanup
+        self.admin.assert_icommand("iadmin rmchildfromresc the_child grandchild")
         self.admin.assert_icommand("iadmin rmchildfromresc pt the_child")
+        self.admin.assert_icommand("iadmin rmresc grandchild")
         self.admin.assert_icommand("iadmin rmresc the_child")
         self.admin.assert_icommand("iadmin rmresc pt")
 
@@ -866,13 +875,6 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
         self.admin.assert_icommand(["imeta","rmw","-R",self.testresc,"rebalance_operation","%","%"])
         self.admin.assert_icommand(["imeta","rmw","-R","demoResc","rebalance_operation","%","%"])
 
-    def test_iexecmd(self):
-        test_file = "iput_test_file"
-        lib.make_file(test_file, 10)
-        self.admin.assert_icommand("iput %s foo" % test_file)
-        self.admin.assert_icommand(['iexecmd', '-p', self.admin.session_collection + '/foo', 'hello'], 'STDOUT_SINGLELINE', "Hello world  from irods")
-        self.admin.assert_icommand("irm -f foo")
-
     def test_ibun(self):
         test_file = "ibun_test_file"
         lib.make_file(test_file, 1000)
@@ -1201,6 +1203,20 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
             server_config_update = {
                 'environment_variables': {
                     'spLogLevel': '11'
+                },
+                'log_level': {
+                    'agent': 'info',
+                    'agent_factory': 'info',
+                    'api': 'info',
+                    'authentication': 'info',
+                    'database': 'info',
+                    'delay_server': 'info',
+                    'legacy': 'trace',
+                    'microservice': 'info',
+                    'network': 'info',
+                    'resource': 'info',
+                    'rule_engine': 'info',
+                    'server': 'info'
                 }
             }
             lib.update_json_file_from_dict(server_config_filename, server_config_update)
@@ -1213,7 +1229,7 @@ class Test_Iadmin(resource_suite.ResourceBase, unittest.TestCase):
             initial_size_of_server_log = lib.get_file_size_by_path(irods_config.server_log_path)
             self.admin.assert_icommand(['ils'], 'STDOUT_SINGLELINE', self.admin.zone_name) # creates an agent, which instantiates the resource hierarchy
 
-            debug_message = 'DEBUG: loading impostor resource for [{0}] of type [{1}] with context [] and load_plugin message'.format(name_of_bogus_resource, name_of_missing_plugin)
+            debug_message = 'loading impostor resource for [{0}] of type [{1}] with context [] and load_plugin message'.format(name_of_bogus_resource, name_of_missing_plugin)
             debug_message_count = lib.count_occurrences_of_string_in_log(irods_config.server_log_path, debug_message, start_index=initial_size_of_server_log)
             self.assertTrue(1 == debug_message_count, msg='Found {} messages in log but expected 1'.format(debug_message_count))
 

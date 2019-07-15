@@ -2,6 +2,7 @@ from __future__ import print_function
 import getpass
 import hashlib
 import inspect
+import json
 import os
 import psutil
 import re
@@ -25,6 +26,7 @@ from ..core_file import temporary_core_file, CoreFile
 from .. import test
 from . import settings
 from .. import lib
+from .. import paths
 from .resource_suite import ResourceSuite, ResourceBase
 from .test_chunkydevtest import ChunkyDevTest
 from . import session
@@ -870,23 +872,41 @@ OUTPUT ruleExecOut
             print('Skipping for plugin name ['+self.plugin_name+']')
 
     def test_key_value_passthru(self):
-        env = os.environ.copy()
-        env['spLogLevel'] = '11'
-        IrodsController(IrodsConfig(injected_environment=env)).restart()
+        file_name = 'file.txt'
+        other_file_name = 'other.txt'
+        try:
+            # load server_config.json to inject new settings
+            server_config_filename = paths.server_config_path()
+            with open(server_config_filename) as f:
+                svr_cfg = json.load(f)
+            svr_cfg['log_level']['resource'] = 'debug'
 
-        lib.make_file('file.txt', 15)
-        initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
-        self.user0.assert_icommand('iput --kv_pass="put_key=val1" file.txt')
-        assert lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'key [put_key] - value [val1]', start_index=initial_log_size) in [1, 2]  # double print if collection missing
+            # dump to a string to repave the existing server_config.json
+            new_server_config = json.dumps(svr_cfg, sort_keys=True, indent=4, separators=(',', ': '))
+            with lib.file_backed_up(server_config_filename):
+                # repave the existing server_config.json
+                with open(server_config_filename, 'w') as f:
+                    f.write(new_server_config)
 
-        initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
-        self.user0.assert_icommand('iget -f --kv_pass="get_key=val3" file.txt other.txt')
-        assert lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'key [get_key] - value [val3]', start_index=initial_log_size) in [1, 2]  # double print if collection missing
-        IrodsController().restart()
-        if os.path.exists('file.txt'):
-            os.unlink('file.txt')
-        if os.path.exists('other.txt'):
-            os.unlink('other.txt')
+                IrodsController().restart()
+
+                lib.make_file(file_name, 15)
+                initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
+                self.user0.assert_icommand('iput --kv_pass="put_key=val1" {}'.format(file_name))
+                # double print if collection missing
+                self.assertTrue(lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'key [put_key] - value [val1]', start_index=initial_log_size) in [1, 2])
+
+                initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
+                self.user0.assert_icommand('iget -f --kv_pass="get_key=val3" {0} {1}'.format(file_name, other_file_name))
+                # double print if collection missing
+                self.assertTrue(lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'key [get_key] - value [val3]', start_index=initial_log_size) in [1, 2])
+
+        finally:
+            IrodsController().restart()
+            if os.path.exists(file_name):
+                os.unlink(file_name)
+            if os.path.exists(other_file_name):
+                os.unlink(other_file_name)
 
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Checks local file")
     def test_ifsck__2650(self):
@@ -4432,6 +4452,32 @@ OUTPUT ruleExecOut
         self.assertEqual(num_up_to_date, 3*num_data_objects_to_use)
         self.assertEqual(num_out_of_date, 0)
         os.unlink(filename)
+
+    def test_irepl_to_consumer_repl_hier_from_provider__4319(self):
+        filename = 'test_irepl_to_consumer_repl_hier_from_provider__4319'
+        lib.make_file(filename, 1 * 1024 * 1024 + 1)
+
+        repl_host = test.settings.HOSTNAME_2
+        self.admin.assert_icommand(['iadmin', 'modresc', 'unix2Resc', 'host', repl_host])
+        self.admin.assert_icommand(['iadmin', 'modresc', 'unix3Resc', 'host', repl_host])
+        test_resc = 'catalog_provider_resc'
+        self.admin.assert_icommand(['iadmin', 'mkresc', test_resc, 'unixfilesystem', test.settings.ICAT_HOSTNAME + ':/tmp/irods/test_vault'], 'STDOUT_SINGLELINE', "Creating")
+
+        initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
+
+        try:
+            self.admin.assert_icommand(['iput', '-R', test_resc, filename])
+            self.admin.assert_icommand(['irepl', '-R', 'demoResc', filename])
+
+            self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
+            self.assertTrue(0 == lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'rcDataCopy failed', start_index=initial_log_size))
+            self.assertTrue(0 == lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'SYS_BAD_FILE_DESCRIPTOR', start_index=initial_log_size))
+        finally:
+            self.admin.assert_icommand(['irm', '-f', filename])
+            os.unlink(filename)
+            self.admin.assert_icommand(['iadmin', 'modresc', 'unix2Resc', 'host', test.settings.HOSTNAME_2])
+            self.admin.assert_icommand(['iadmin', 'modresc', 'unix3Resc', 'host', test.settings.HOSTNAME_3])
+            self.admin.assert_icommand(['iadmin', 'rmresc', test_resc])
 
 @unittest.skipIf(False == test.settings.USE_MUNGEFS, "These tests require mungefs")
 class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittest.TestCase):
