@@ -158,11 +158,11 @@ static void set_agent_spawner_process_name(const InformationRequiredToSafelyRena
 
 namespace {
 
-void init_logger()
+void init_logger(bool _write_to_stdout = false, bool _enable_test_mode = false)
 {
     using log = irods::experimental::log;
 
-    log::init();
+    log::init(_write_to_stdout, _enable_test_mode);
     irods::server_properties::instance().capture();
     log::server::set_level(log::get_level_from_config(irods::CFG_LOG_LEVEL_CATEGORY_SERVER_KW));
     log::set_server_type("server");
@@ -198,11 +198,10 @@ void daemonize()
 int
 main( int argc, char **argv )
 {
-    init_logger();
-
     int c;
-    int uFlag = 0;
     char tmpStr1[100], tmpStr2[100];
+    bool write_to_stdout = false;
+    bool enable_test_mode = false;
 
     ProcessType = SERVER_PT;    /* I am a server */
 
@@ -220,42 +219,47 @@ main( int argc, char **argv )
     }
 
     ServerBootTime = time( 0 );
-    while ( ( c = getopt( argc, argv, "uvVqsh" ) ) != EOF ) {
+    while ( ( c = getopt( argc, argv, "tuvVqsh" ) ) != EOF ) {
         switch ( c ) {
-        case 'u':               /* user command level. without serverized */
-            uFlag = 1;
-            break;
-        case 'v':               /* verbose Logging */
-            snprintf( tmpStr1, 100, "%s=%d", SP_LOG_LEVEL, LOG_NOTICE );
-            putenv( tmpStr1 );
-            rodsLogLevel( LOG_NOTICE );
-            break;
-        case 'V':               /* very Verbose */
-            snprintf( tmpStr1, 100, "%s=%d", SP_LOG_LEVEL, LOG_DEBUG10 );
-            putenv( tmpStr1 );
-            rodsLogLevel( LOG_DEBUG10 );
-            break;
-        case 'q':               /* quiet (only errors and above) */
-            snprintf( tmpStr1, 100, "%s=%d", SP_LOG_LEVEL, LOG_ERROR );
-            putenv( tmpStr1 );
-            rodsLogLevel( LOG_ERROR );
-            break;
-        case 's':               /* log SQL commands */
-            snprintf( tmpStr2, 100, "%s=%d", SP_LOG_SQL, 1 );
-            putenv( tmpStr2 );
-            break;
-        case 'h':               /* help */
-            usage( argv[0] );
-            exit( 0 );
-        default:
-            usage( argv[0] );
-            exit( 1 );
+            case 't':
+                enable_test_mode = true;
+                break;
+            case 'u':               /* user command level. without serverized */
+                write_to_stdout = true;
+                break;
+            case 'v':               /* verbose Logging */
+                snprintf( tmpStr1, 100, "%s=%d", SP_LOG_LEVEL, LOG_NOTICE );
+                putenv( tmpStr1 );
+                rodsLogLevel( LOG_NOTICE );
+                break;
+            case 'V':               /* very Verbose */
+                snprintf( tmpStr1, 100, "%s=%d", SP_LOG_LEVEL, LOG_DEBUG10 );
+                putenv( tmpStr1 );
+                rodsLogLevel( LOG_DEBUG10 );
+                break;
+            case 'q':               /* quiet (only errors and above) */
+                snprintf( tmpStr1, 100, "%s=%d", SP_LOG_LEVEL, LOG_ERROR );
+                putenv( tmpStr1 );
+                rodsLogLevel( LOG_ERROR );
+                break;
+            case 's':               /* log SQL commands */
+                snprintf( tmpStr2, 100, "%s=%d", SP_LOG_SQL, 1 );
+                putenv( tmpStr2 );
+                break;
+            case 'h':               /* help */
+                usage( argv[0] );
+                exit( 0 );
+            default:
+                usage( argv[0] );
+                exit( 1 );
         }
     }
 
-    if (uFlag == 0) {
+    if (!write_to_stdout) {
         daemonize();
     }
+
+    init_logger(write_to_stdout, enable_test_mode);
 
     /* start of irodsReServer has been moved to serverMain */
     signal( SIGTTIN, SIG_IGN );

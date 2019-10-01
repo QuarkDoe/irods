@@ -13,7 +13,6 @@
 #include <istream>
 #include <ostream>
 #include <chrono>
-#include <optional>
 #include <vector>
 #include <variant>
 
@@ -53,7 +52,7 @@ namespace irods::experimental::filesystem
     {
         std::string attribute;
         std::string value;
-        std::optional<std::string> units;
+        std::string units;
     };
 
     namespace NAMESPACE_IMPL
@@ -91,7 +90,7 @@ namespace irods::experimental::filesystem
         auto remove(rxComm& _comm, const path& _p, remove_options _opts = remove_options::none) -> bool;
         auto remove_all(rxComm& _comm, const path& _p, remove_options _opts = remove_options::none) -> std::uintmax_t;
 
-        auto permissions(rxComm& _comm, const path& _p, perms _prms) -> void;
+        auto permissions(rxComm& _comm, const path& _p, const std::string& _user_or_group, perms _prms) -> void;
 
         auto rename(rxComm& _comm, const path& _from, const path& _to) -> void;
 
@@ -104,9 +103,7 @@ namespace irods::experimental::filesystem
                                   const std::variant<int, replica_number>& _replica_number,
                                   verification_calculation _calculation = verification_calculation::none) -> std::vector<checksum>;
 
-        auto get_metadata(rxComm& _comm,
-                          const path& _path,
-                          const std::optional<metadata>& _metadata = {}) -> std::vector<metadata>;
+        auto get_metadata(rxComm& _comm, const path& _path) -> std::vector<metadata>;
 
         auto set_metadata(rxComm& _comm, const path& _path, const metadata& _metadata) -> bool;
 
