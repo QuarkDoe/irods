@@ -833,6 +833,7 @@ add_library(
   irods_common
   SHARED
   ${IRODS_LIBIRODS_COMMON_SOURCES}
+  $<TARGET_OBJECTS:irods_filesystem_path>
   )
 target_link_libraries(
   irods_common
@@ -854,6 +855,7 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/lib/core/include
   ${CMAKE_SOURCE_DIR}/lib/api/include
   ${CMAKE_SOURCE_DIR}/lib/hasher/include
+  ${CMAKE_SOURCE_DIR}/lib/filesystem/include
   ${CMAKE_SOURCE_DIR}/lib/rbudp/include
   ${CMAKE_SOURCE_DIR}/server/core/include
   ${CMAKE_SOURCE_DIR}/server/icat/include
@@ -1383,6 +1385,7 @@ add_subdirectory(plugins/network)
 add_subdirectory(plugins/resources)
 add_subdirectory(plugins/rule_engines)
 add_subdirectory(test/c_api_test)
+add_subdirectory(unit_tests)
 
 include(${CMAKE_SOURCE_DIR}/cmake/development_library.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/runtime_library.cmake)
