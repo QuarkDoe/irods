@@ -8,3 +8,5 @@ tags
 *.kdev4
 *.swp
 *.pyc
+*.un~
+*.swp~
