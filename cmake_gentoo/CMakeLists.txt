@@ -8,7 +8,9 @@ project( IRODS C CXX )
 set(
 	CMAKE_MODULE_PATH
 	${CMAKE_SOURCE_DIR}/cmake_find/
+	${CMAKE_SOURCE_DIR}/cmake_utils/
 	${CMAKE_SOURCE_DIR}/cmake_modules/
+	${CMAKE_SOURCE_DIR}/cmake_sources/
 )
 
 get_filename_component( IRODS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/.." ABSOLUTE )
@@ -34,7 +36,7 @@ include( CheckIncludeFileCXX )
 
 set( IRODS_VERSION_MAJOR "4" )
 set( IRODS_VERSION_MINOR "2" )
-set( IRODS_VERSION_PATCH "5" )
+set( IRODS_VERSION_PATCH "6" )
 set( IRODS_VERSION "${IRODS_VERSION_MAJOR}.${IRODS_VERSION_MINOR}.${IRODS_VERSION_PATCH}" )
 set( IRODS_CXX_STANDARD "14" )
 
@@ -148,6 +150,8 @@ configure_file(
 	@ONLY
 )
 
+include( irods_filesystem_path )
+include( irods_filesystem_client )
 include( irods_common_library )
 include( irods_plugin_dependencies_library )
 include( irods_client_library )
@@ -155,6 +159,7 @@ include( irods_apis_static_library )
 include( irods_plugins )
 
 if( BUILD_SERVER )
+	include( irods_filesystem_server )
 	include( irods_server_library )
 	include( irods_main_executables )
 	include( irods_files )

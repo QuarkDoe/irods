@@ -1,4 +1,9 @@
+#====================
+#
+#====================
+
 add_subdirectory(plugins/auth)
+
 add_subdirectory(plugins/network)
 
 if( BUILD_SERVER )

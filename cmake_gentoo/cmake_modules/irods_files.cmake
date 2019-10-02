@@ -1,3 +1,6 @@
+#====================
+#
+#====================
 
 install(
 	FILES ${CMAKE_BINARY_DIR}/VERSION.json.dist

@@ -1,0 +1,24 @@
+set (
+	IRODS_RULE_ENGINE_PLUGIN-IRODS_RULE_LANGUAGE_SOURCES
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/arithmetics.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/cache.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/configuration.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/conversion.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/datetime.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/filesystem.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/msiHelper.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/index.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/nre.reHelpers1.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/nre.reHelpers2.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/nre.reLib1.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/parser.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/reVariableMap.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/reVariableMap.gen.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/restructs.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/rules.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/typing.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/utils.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/rsRe.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/functions.cpp
+	${IRODS_SOURCE_DIR}/plugins/rule_engines/irods_rule_engine_plugin-irods_rule_language/libirods_rule_engine_plugin-irods_rule_language.cpp
+)

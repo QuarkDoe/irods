@@ -1,0 +1,3 @@
+set (
+	IRODS_LIB_CLIENT_EXEC_SOURCES
+)

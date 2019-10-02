@@ -1,0 +1,58 @@
+#!/bin/bash
+
+ROOT=$(dirname $(dirname $(dirname $(readlink -f ${0}))))
+GENTOO=$(dirname $(dirname $(readlink -f ${0})))
+
+FSETS=(
+	${ROOT}/CMakeLists.txt
+	${ROOT}/plugins/rule_engines/CMakeLists.txt
+	${ROOT}/cmake/development_library.cmake
+)
+#[ -f ${INCM} ] || { echo "error!!!!!!"; exit 1; }
+
+ODIR=${GENTOO}/cmake_sources
+mkdir -p ${ODIR}
+rm -r ${ODIR}/*
+
+grep_sets(){
+	OLD_IFS="${IFS}"
+	IFS=$'\n'
+	END=0
+	STATE="START"
+	read LN || END=1
+	for (( CNT=0; END != 1; CNT++ )); do
+		CLN="$(echo -e "${LN}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+		case "${STATE}" in
+			START|CONT)
+				[ "${CLN}" = "set(" ] && STATE=SET
+			;;
+			SET)
+				[[ "${CLN}" =~ .*_(SOURCES|HEADERS) ]] && {
+					OFL="${ODIR}/$(echo ${CLN}|tr '[:upper:]' '[:lower:]'| tr '-' '_' ).cmake"
+					echo ${CLN}
+					echo "set (" >  ${OFL}
+					echo -n -e '\t' >> ${OFL}
+					echo ${CLN} >> ${OFL}
+					STATE=OUT
+				} || {
+					STATE=CONT
+				}
+			;;
+			OUT)
+				[ "${CLN}" = ")" ] && {
+					STATE=CONT
+					echo ")" >> ${OFL}
+				} || {
+					echo -n -e '\t' >> ${OFL}
+					echo "${CLN}" | sed 's/CMAKE_SOURCE_DIR/IRODS_SOURCE_DIR/' >> ${OFL}
+				}
+			;;
+		esac
+		read LN || END=1
+	done
+	IFS="${OLD_IFS}"
+}
+
+for INCM in "${FSETS[@]}"; do
+	cat ${INCM} | grep_sets
+done

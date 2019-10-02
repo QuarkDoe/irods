@@ -1,18 +1,12 @@
-set(
-	IRODS_MAIN_EXECUTABLE_IRODSSERVER_SOURCES
-	${IRODS_SOURCE_DIR}/server/core/src/rodsServer.cpp
-	${IRODS_SOURCE_DIR}/server/core/src/irods_server_control_plane.cpp
-)
+#====================
+#
+#====================
 
-set(
-	IRODS_MAIN_EXECUTABLE_IRODSXMSGSERVER_SOURCES
-	${IRODS_SOURCE_DIR}/server/core/src/irodsXmsgServer.cpp
-)
+include(irods_main_executable_irodsserver_sources)
 
-set(
-	IRODS_MAIN_EXECUTABLE_HOSTNAME_RESOLVES_TO_LOCAL_ADDRESS_SOURCES
-	${IRODS_SOURCE_DIR}/server/core/src/hostname_resolves_to_local_address.cpp
-)
+include(irods_main_executable_irodsxmsgserver_sources)
+
+include(irods_main_executable_hostname_resolves_to_local_address_sources)
 
 set(
 	IRODS_MAIN_EXECUTABLES
@@ -81,12 +75,12 @@ endforeach()
 add_executable(
 	irodsReServer
 	${IRODS_SOURCE_DIR}/server/core/src/irodsReServer.cpp
-	${IRODS_SOURCE_DIR}/server/core/src/reServerLib.cpp
 )
 
 target_link_libraries(
 	irodsReServer
 	PRIVATE
+	irods_server
 	irods_client
 	irods_common
 	irods_plugin_dependencies
