@@ -1,10 +1,6 @@
+#====================
 #
-#
-#
-
-#if( NOT CPACK_GENERATOR )
-#  set( CPACK_GENERATOR TGZ )
-#endif()
+#====================
 
 if( NOT IRODS_LINUX_DISTRIBUTION_NAME )
 	execute_process(

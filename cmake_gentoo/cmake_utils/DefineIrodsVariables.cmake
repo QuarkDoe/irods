@@ -1,38 +1,33 @@
+#====================
+#
+#====================
 
-# guess LIB_SUFFIX, don't take debian multiarch into account
-if ( NOT DEFINED LIB_SUFFIX )
-  if( CMAKE_SYSTEM_NAME MATCHES "Linux"
-      AND NOT CMAKE_CROSSCOMPILING
-      AND NOT EXISTS "/etc/debian_version"
-      AND NOT EXISTS "/etc/arch-release" )
-    if ( "${CMAKE_SIZEOF_VOID_P}" EQUAL "8" )
-      set ( LIB_SUFFIX 64 )
-    endif ()
-  endif ()
-endif ()
+include(GNUInstallDirs)
 
-
-# some of thise paths are bad, but scripts and source code use hard-coded relative paths
+set( IRODS_HOME_DIR ${CMAKE_INSTALL_FULL_LOCALSTATEDIR}/lib/irods )
+set( IRODS_HOME_DIRECTORY ${IRODS_HOME_DIR} )
 if( CMAKE_INSTALL_PREFIX STREQUAL "/usr" )
-  set( IRODS_HOME_DIR /var/lib/irods )
-  set( IRODS_HOME_DIRECTORY ${IRODS_HOME_DIR} )
-  set( IRODS_SBIN_DIR /usr/sbin )
-  set( IRODS_ETC_DIR /etc )
-  set( IRODS_INCLUDE_DIR /usr/include/irods )
-  set( IRODS_LIBRARY_DIR /usr/lib )
-  set( IRODS_CMAKE_DIR ${IRODS_LIBRARY_DIR}/cmake/irods )
-  set( IRODS_PLUGINS_DIR ${IRODS_LIBRARY_DIR}/irods/plugins )
-  set( IRODS_PLUGINS_DIRECTORY ${IRODS_PLUGINS_DIR} )
-  set( IRODS_DOC_DIR /usr/share/doc/irods )
+        set( IRODS_SBIN_DIR ${CMAKE_INSTALL_SBINDIR} )
 else()
-  set( IRODS_HOME_DIR var/lib/irods )
-  set( IRODS_HOME_DIRECTORY ${IRODS_HOME_DIR} )
-  set( IRODS_SBIN_DIR usr/sbin )
-  set( IRODS_ETC_DIR etc )
-  set( IRODS_INCLUDE_DIR include/irods )
-  set( IRODS_LIBRARY_DIR usr/lib )
-  set( IRODS_CMAKE_DIR ${IRODS_LIBRARY_DIR}/cmake/irods )
-  set( IRODS_PLUGINS_DIR ${IRODS_LIBRARY_DIR}/irods/plugins )
-  set( IRODS_PLUGINS_DIRECTORY ${IRODS_PLUGINS_DIR} )
-  set( IRODS_DOC_DIR usr/share/doc/irods )
+        set( IRODS_SBIN_DIR usr/sbin )
+endif()
+set( IRODS_ETC_DIR ${CMAKE_INSTALL_SYSCONFDIR} )
+set( IRODS_INCLUDE_DIR ${CMAKE_INSTALL_INCLUDEDIR}/irods )
+set( IRODS_LIBRARY_DIR ${CMAKE_INSTALL_LIBDIR} )
+set( IRODS_CMAKE_DIR ${IRODS_LIBRARY_DIR}/cmake/irods )
+set( IRODS_PLUGINS_DIR ${IRODS_LIBRARY_DIR}/irods/plugins )
+set( IRODS_PLUGINS_DIRECTORY ${IRODS_PLUGINS_DIR} )
+set( IRODS_DOC_DIR ${CMAKE_INSTALL_DATAROOTDIR}/doc/irods-${IRODS_VERSION} )
+
+if( VERBOSE )
+  message( STATUS "IRODS_HOME_DIR: ${IRODS_HOME_DIR}" )
+  message( STATUS "IRODS_HOME_DIRECTORY: ${IRODS_HOME_DIRECTORY}" )
+  message( STATUS "IRODS_SBIN_DIR: ${IRODS_SBIN_DIR}" )
+  message( STATUS "IRODS_ETC_DIR: ${IRODS_ETC_DIR}" )
+  message( STATUS "IRODS_INCLUDE_DIR: ${IRODS_INCLUDE_DIR}" )
+  message( STATUS "IRODS_LIBRARY_DIR: ${IRODS_LIBRARY_DIR}" )
+  message( STATUS "IRODS_CMAKE_DIR: ${IRODS_CMAKE_DIR}" )
+  message( STATUS "IRODS_PLUGINS_DIR: ${IRODS_PLUGINS_DIR}" )
+  message( STATUS "IRODS_PLUGINS_DIRECTORY: ${IRODS_PLUGINS_DIRECTORY}" )
+  message( STATUS "IRODS_DOC_DIR: ${IRODS_DOC_DIR}" )
 endif()

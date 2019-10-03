@@ -2,6 +2,8 @@
 #
 #====================
 
+file( TOUCH ${CMAKE_BINARY_DIR}/.keep )
+
 install(
 	FILES ${CMAKE_BINARY_DIR}/VERSION.json.dist
 	DESTINATION ${IRODS_HOME_DIRECTORY}
@@ -9,17 +11,10 @@ install(
 )
 
 install(
-	DIRECTORY
+	FILES ${CMAKE_BINARY_DIR}/.keep
 	DESTINATION ${IRODS_HOME_DIRECTORY}/log
 	COMPONENT irods-server
 )
-
-# new dir should be created by 'dodir' command in ebuild-script.
-#install(
-#	DIRECTORY
-#	DESTINATION ${IRODS_ETC_DIR}/irods
-#	COMPONENT irods-server
-#)
 
 install(
 	FILES
@@ -48,25 +43,6 @@ install(
 	PERMISSIONS OWNER_READ OWNER_EXECUTE GROUP_READ WORLD_READ
 )
 
-# init.d and conf.d files should installed from .ebuild using doinitd and doconfd.
-# See Gentoo Devmanual at https://devmanual.gentoo.org/tasks-reference/init-scripts/index.html
-
-#install(
-#	FILES
-#	${CMAKE_SOURCE_DIR}/gentoo/init.d/irods
-#	DESTINATION ${IRODS_ETC_DIR}/init.d
-#	COMPONENT irods-server
-#	PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-#)
-
-#install(
-#	FILES
-#	${CMAKE_SOURCE_DIR}/gentoo/conf.d/irods
-#	DESTINATION ${IRODS_ETC_DIR}/conf.d
-#	COMPONENT irods-server
-#	PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
-#)
-
 install(
 	FILES
 	${IRODS_SOURCE_DIR}/README.md
@@ -89,13 +65,13 @@ install(
 )
 
 install(
-	DIRECTORY
+	FILES ${CMAKE_BINARY_DIR}/.keep
 	DESTINATION ${IRODS_HOME_DIRECTORY}/config/lockFileDir
 	COMPONENT irods-server
 )
 
 install(
-	DIRECTORY
+	FILES ${CMAKE_BINARY_DIR}/.keep
 	DESTINATION ${IRODS_HOME_DIRECTORY}/config/packedRei
 	COMPONENT irods-server
 )
