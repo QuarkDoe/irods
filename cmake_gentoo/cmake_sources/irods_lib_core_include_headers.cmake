@@ -69,6 +69,7 @@ set (
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_tcp_object.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_threads.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/irods_virtual_path.hpp
+	${IRODS_SOURCE_DIR}/lib/core/include/query_builder.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/query_processor.hpp
 	${IRODS_SOURCE_DIR}/lib/core/include/lsUtil.h
 	${IRODS_SOURCE_DIR}/lib/core/include/mcollUtil.h
