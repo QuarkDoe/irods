@@ -1,0 +1,26 @@
+#ifndef IRODS_PATHS_VARIABLES_H
+#define IRODS_PATHS_VARIABLES_H
+/*
+-- IRODS_HOME_DIR: /var/lib/irods
+-- IRODS_HOME_DIRECTORY: /var/lib/irods
+-- IRODS_SBIN_DIR: /usr/sbin
+-- IRODS_ETC_DIR: /etc
+-- IRODS_INCLUDE_DIR: /usr/include/irods
+-- IRODS_LIBRARY_DIR: /usr/lib64
+-- IRODS_CMAKE_DIR: /usr/lib64/cmake/irods
+-- IRODS_PLUGINS_DIR: /usr/lib64/irods/plugins
+-- IRODS_PLUGINS_DIRECTORY: /usr/lib64/irods/plugins
+-- IRODS_DOC_DIR: /usr/share/doc/irods-4.2.6
+*/
+
+#define IRODS_HOME_DIR       "@IRODS_HOME_DIR@"
+#define IRODS_SBIN_DIR       "@IRODS_SBIN_DIR@"
+#define IRODS_ETC_DIR        "@IRODS_ETC_DIR@"
+#define IRODS_CONFIG_DIR     "@IRODS_CONFIG_DIR@"
+#define IRODS_INCLUDE_DIR    "@IRODS_INCLUDE_DIR@"
+#define IRODS_LIBRARY_DIR    "@IRODS_LIBRARY_DIR@"
+#define IRODS_CMAKE_DIR      "@IRODS_CMAKE_DIR@"
+#define IRODS_PLUGINS_DIR    "@IRODS_PLUGINS_DIR@"
+#define IRODS_DOC_DIR        "@IRODS_DOC_DIR@"
+
+#endif	/* IRODS_PATHS_VARIABLES_H */

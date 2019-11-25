@@ -130,6 +130,13 @@ set_source_files_properties(
 	OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/lib/core/include/server_control_plane_command.hpp
 )
 
+#template file in cmake_gentoo/lib/core/...
+configure_file(
+	${CMAKE_SOURCE_DIR}/lib/core/include/irods_paths_constants.h.in
+	${CMAKE_BINARY_DIR}/lib/core/include/irods_paths_constants.h
+	@ONLY
+)
+
 configure_file(
 	${IRODS_SOURCE_DIR}/lib/core/include/rodsVersion.h.in
 	${CMAKE_BINARY_DIR}/lib/core/include/rodsVersion.h

@@ -64,6 +64,19 @@ install(
 	COMPONENT irods-server
 )
 
+configure_file(
+	${CMAKE_SOURCE_DIR}/scripts/irods/paths.py.in
+	${CMAKE_BINARY_DIR}/scripts/irods/paths.py
+	@ONLY
+)
+
+install(
+	FILES
+	${CMAKE_BINARY_DIR}/scripts/irods/paths.py
+	DESTINATION ${IRODS_HOME_DIRECTORY}/scripts/irods/
+	COMPONENT irods-server
+)
+
 install(
 	FILES ${CMAKE_BINARY_DIR}/.keep
 	DESTINATION ${IRODS_HOME_DIRECTORY}/config/lockFileDir

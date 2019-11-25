@@ -1,9 +1,10 @@
 #include <dlfcn.h>
 #include <boost/filesystem.hpp>
 #include "irods_exception.hpp"
-
+#include "irods_paths_constants.h"
 
 namespace irods {
+/*
     boost::filesystem::path
     get_irods_root_directory() {
         Dl_info dl_info;
@@ -24,25 +25,29 @@ namespace irods {
             THROW(-1, e.what());
         }
     }
+*/
 
     boost::filesystem::path
     get_irods_config_directory() {
-        boost::filesystem::path path{get_irods_root_directory()};
-        path.append("etc").append("irods");
+        boost::filesystem::path path{ IRODS_CONFIG_DIR };
+        //boost::filesystem::path path{get_irods_root_directory()};
+        //path.append("etc").append("irods");
         return path;
     }
 
     boost::filesystem::path
     get_irods_home_directory() {
-        boost::filesystem::path path{get_irods_root_directory()};
-        path.append("var").append("lib").append("irods");
+        boost::filesystem::path path{ IRODS_HOME_DIR };
+        //boost::filesystem::path path{get_irods_root_directory()};
+        //path.append("var").append("lib").append("irods");
         return path;
     }
 
     boost::filesystem::path
     get_irods_default_plugin_directory() {
-        boost::filesystem::path path{get_irods_root_directory()};
-        path.append("usr").append("lib").append("irods").append("plugins");
+        boost::filesystem::path path{ IRODS_PLUGINS_DIR };
+        //boost::filesystem::path path{get_irods_root_directory()};
+        //path.append("usr").append("lib").append("irods").append("plugins");
         return path;
     }
 }
