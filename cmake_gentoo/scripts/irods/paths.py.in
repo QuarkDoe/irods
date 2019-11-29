@@ -15,6 +15,9 @@ def config_directory():
 def plugins_directory():
     return os.path.normpath("@IRODS_PLUGINS_DIR@")
 
+def server_bin_directory():
+    return os.path.normpath("@IRODS_SBIN_DIR@")
+
 def home_directory():
     return irods_user_and_group_entries()[0][5]
 
@@ -115,12 +118,6 @@ def re_log_path():
             for name in os.listdir(log_directory())
             if name.startswith('reLog')],
         key=lambda path: os.path.getctime(path))[-1]
-
-def server_bin_directory():
-    return os.path.join(
-        root_directory(),
-        'usr',
-        'sbin')
 
 def server_executable():
     return os.path.join(
