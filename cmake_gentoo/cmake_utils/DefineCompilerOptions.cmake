@@ -2,8 +2,8 @@
 #
 #====================
 
-set( CMAKE_C_COMPILER "clang" )
-set( CMAKE_CXX_COMPILER "clang++" )
+set( CMAKE_C_COMPILER "clang-8" )
+set( CMAKE_CXX_COMPILER "clang++-8" )
 set( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--export-dynamic" )
 set( CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-z,defs" )
 set( CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,defs" )
