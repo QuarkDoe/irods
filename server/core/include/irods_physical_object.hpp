@@ -24,8 +24,8 @@ namespace irods {
 
             // =-=-=-=-=-=-=-
             // accessors
-            inline int         is_dirty()        const {
-                return is_dirty_;
+            inline int         replica_status()  const {
+                return replica_status_;
             }
             inline int         repl_num()        const {
                 return repl_num_;
@@ -90,11 +90,15 @@ namespace irods {
             inline rodsLong_t resc_id()          const {
                 return resc_id_;
             }
+            inline float vote() const
+            {
+                return vote_;
+            } // vote
 
             // =-=-=-=-=-=-=-
             // mutators
-            inline void is_dirty( int _v )                       {
-                is_dirty_        = _v;
+            inline void replica_status( int _v )                 {
+                replica_status_  = _v;
             }
             inline void repl_num( int _v )                       {
                 repl_num_        = _v;
@@ -159,9 +163,13 @@ namespace irods {
             inline void resc_id( rodsLong_t _id )                  {
                 resc_id_ = _id;
             }
+            inline void vote(const float vote)
+            {
+                vote_ = vote;
+            } // vote
 
         private:
-            int         is_dirty_;
+            int         replica_status_;
             int         repl_num_;
             long        map_id_;
             long        size_;
@@ -183,6 +191,7 @@ namespace irods {
             std::string modify_ts_;
             std::string resc_hier_;
             rodsLong_t  resc_id_;
+            float       vote_;
 
     }; // physical_object
 

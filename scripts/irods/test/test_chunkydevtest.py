@@ -67,7 +67,7 @@ class ChunkyDevTest(ResourceBase):
         self.admin.assert_icommand("iput -kf " + test_file + " " + irodshome + "/icmdtest/foo1")
         self.admin.assert_icommand("ils " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', "foo1")
         self.admin.assert_icommand("ils -l " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', ["foo1", myssize])
-        self.admin.assert_icommand("iadmin ls " + irodshome + "/icmdtest", 'STDOUT_SINGLELINE', "foo1")
+        self.admin.assert_icommand("ils " + irodshome + "/icmdtest", 'STDOUT_SINGLELINE', "foo1")
         self.admin.assert_icommand("ils -A " + irodshome + "/icmdtest/foo1",
                                    'STDOUT_SINGLELINE', username + "#" + irodszone + ":own")
         self.admin.assert_icommand("ichmod read " + testuser1 + " " + irodshome + "/icmdtest/foo1")
@@ -80,8 +80,9 @@ class ChunkyDevTest(ResourceBase):
         # overwrite a copy
         self.admin.assert_icommand("itrim -S " + irodsdefresource + " -N1 " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', "files trimmed")
         self.admin.assert_icommand_fail("ils -L " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', [irodsdefresource])
-        self.admin.assert_icommand("iphymv -R " + irodsdefresource + " " + irodshome + "/icmdtest/foo1")
-        self.admin.assert_icommand("ils -l " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', irodsdefresource[0:19])
+        # TODO: this must be skipped because iphymv requires a leaf resource for source and destination
+        #self.admin.assert_icommand("iphymv -S " + self.testresc + " -R " + irodsdefresource + " " + irodshome + "/icmdtest/foo1")
+        #self.admin.assert_icommand("ils -l " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', irodsdefresource[0:19])
         # basic metadata shuffle
         self.admin.assert_icommand("imeta add -d " + irodshome + "/icmdtest/foo1 testmeta1 180 cm")
         self.admin.assert_icommand("imeta ls -d " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', ["testmeta1"])
@@ -168,7 +169,7 @@ class ChunkyDevTest(ResourceBase):
         self.admin.assert_icommand("ils -l " + irodshome + "/icmdtest/foo1",
                                    'STDOUT_SINGLELINE', ["foo1", str(os.stat(sfile2).st_size)])
         # update all old copies
-        self.admin.assert_icommand("irepl -U " + irodshome + "/icmdtest/foo1")
+        self.admin.assert_icommand("irepl -a " + irodshome + "/icmdtest/foo1")
         # make sure the old size is not there
         self.admin.assert_icommand_fail("ils -l " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', myssize)
         self.admin.assert_icommand("itrim -S " + irodsdefresource + " " + irodshome + "/icmdtest/foo1", 'STDOUT_SINGLELINE', "files trimmed")
@@ -207,18 +208,6 @@ class ChunkyDevTest(ResourceBase):
         compare_dirs = filecmp.dircmp(os.path.join(dir_w, 'testx'), os.path.join(dir_w, 'testx1', 'icmdtestx'))
         assert (not compare_dirs.right_only and not compare_dirs.left_only and not compare_dirs.diff_files), "Directories differ"
 
-        # test ibun with zip
-        self.admin.assert_icommand("ibun -cDzip " + irodshome + "/icmdtestx1.zip " + irodshome + "/icmdtestx")
-        self.admin.assert_icommand("ibun -x " + irodshome + "/icmdtestx1.zip " + irodshome + "/icmdtestzip")
-        if os.path.isfile("icmdtestzip"):
-            os.unlink("icmdtestzip")
-        self.admin.assert_icommand("iget -vr " + irodshome + "/icmdtestzip " + dir_w + "", 'STDOUT_SINGLELINE', "icmdtestzip")
-        compare_dirs = filecmp.dircmp(os.path.join(dir_w, 'testx'), os.path.join(dir_w, 'icmdtestzip', 'icmdtestx'))
-        assert (not compare_dirs.right_only and not compare_dirs.left_only and not compare_dirs.diff_files), "Directories differ"
-        shutil.rmtree(dir_w + "/icmdtestzip")
-        self.admin.assert_icommand("ibun --add " + irodshome + "/icmdtestx1.zip " + irodshome + "/icmdtestzip")
-        self.admin.assert_icommand("irm -rf " + irodshome + "/icmdtestx1.zip " + irodshome + "/icmdtestzip")
-
         # test ibun with gzip
         self.admin.assert_icommand("ibun -cDgzip " + irodshome + "/icmdtestx1.tar.gz " + irodshome + "/icmdtestx")
         self.admin.assert_icommand("ibun -x " + irodshome + "/icmdtestx1.tar.gz " + irodshome + "/icmdtestgz")
@@ -230,6 +219,18 @@ class ChunkyDevTest(ResourceBase):
         shutil.rmtree(dir_w + "/icmdtestgz")
         self.admin.assert_icommand("ibun --add " + irodshome + "/icmdtestx1.tar.gz " + irodshome + "/icmdtestgz")
         self.admin.assert_icommand("irm -rf " + irodshome + "/icmdtestx1.tar.gz " + irodshome + "/icmdtestgz")
+
+        # test ibun with zip
+        self.admin.assert_icommand("ibun -cDzip " + irodshome + "/icmdtestx1.zip " + irodshome + "/icmdtestx")
+        self.admin.assert_icommand("ibun -x " + irodshome + "/icmdtestx1.zip " + irodshome + "/icmdtestzip")
+        if os.path.isfile("icmdtestzip"):
+            os.unlink("icmdtestzip")
+        self.admin.assert_icommand("iget -vr " + irodshome + "/icmdtestzip " + dir_w + "", 'STDOUT_SINGLELINE', "icmdtestzip")
+        compare_dirs = filecmp.dircmp(os.path.join(dir_w, 'testx'), os.path.join(dir_w, 'icmdtestzip', 'icmdtestx'))
+        assert (not compare_dirs.right_only and not compare_dirs.left_only and not compare_dirs.diff_files), "Directories differ"
+        shutil.rmtree(dir_w + "/icmdtestzip")
+        self.admin.assert_icommand("ibun --add " + irodshome + "/icmdtestx1.zip " + irodshome + "/icmdtestzip")
+        self.admin.assert_icommand("irm -rf " + irodshome + "/icmdtestx1.zip " + irodshome + "/icmdtestzip")
 
         # test ibun with bzip2
         self.admin.assert_icommand("ibun -cDbzip2 " + irodshome + "/icmdtestx1.tar.bz2 " + irodshome + "/icmdtestx")
@@ -534,7 +535,7 @@ class ChunkyDevTest(ResourceBase):
         out, _ = lib.execute_command(['ils', '-L', os.path.join(irodshome, 'icmdtestp', 'sfile1')])
         bunfile = out.split()[-1]
         print(bunfile)
-        self.admin.assert_icommand("irepl --purgec -R " + self.anotherresc + " " + bunfile)
+        self.admin.assert_icommand("irepl --purgec -R " + self.anotherresc + " " + bunfile, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')
         self.admin.assert_icommand("itrim -rS " + self.testresc + " -N1 " +
                                    irodshome + "/icmdtestp", 'STDOUT_SINGLELINE', "files trimmed")
         # get the name of bundle file
@@ -626,14 +627,15 @@ class ChunkyDevTest(ResourceBase):
         # make a directory of large files
         self.admin.assert_icommand("iput -kf  " + test_file + "  " + irodshome + "/icmdtest1/foo1")
         self.admin.assert_icommand("ils -l " + irodshome + "/icmdtest1/foo1", 'STDOUT_SINGLELINE', ["foo1", myssize])
-        self.admin.assert_icommand("iadmin ls " + irodshome + "/icmdtest1", 'STDOUT_SINGLELINE', "foo1")
+        self.admin.assert_icommand("ils " + irodshome + "/icmdtest1", 'STDOUT_SINGLELINE', "foo1")
         self.admin.assert_icommand("ichmod read " + self.user0.username + " " + irodshome + "/icmdtest1/foo1")
         self.admin.assert_icommand("ils -A " + irodshome + "/icmdtest1/foo1",
                                    'STDOUT_SINGLELINE', self.user0.username + "#" + irodszone + ":read")
         self.admin.assert_icommand("irepl -B -R " + self.testresc + " " + irodshome + "/icmdtest1/foo1")
         # overwrite a copy
         self.admin.assert_icommand("itrim -S  " + irodsdefresource + " -N1 " + irodshome + "/icmdtest1/foo1", 'STDOUT_SINGLELINE', "files trimmed")
-        self.admin.assert_icommand("iphymv -R  " + irodsdefresource + " " + irodshome + "/icmdtest1/foo1")
+        # TODO: this must be skipped because iphymv requires a leaf resource for source and destination
+        #self.admin.assert_icommand("iphymv -S " + self.testresc + " -R " + irodsdefresource + " " + irodshome + "/icmdtest/foo1")
         self.admin.assert_icommand("imeta add -d " + irodshome + "/icmdtest1/foo1 testmeta1 180 cm")
         self.admin.assert_icommand("imeta ls -d " + irodshome + "/icmdtest1/foo1", 'STDOUT_SINGLELINE', "testmeta1")
         self.admin.assert_icommand("imeta ls -d " + irodshome + "/icmdtest1/foo1", 'STDOUT_SINGLELINE', "180")
@@ -715,8 +717,9 @@ class ChunkyDevTest(ResourceBase):
                                    irodshome + "/icmdtest/testz", 'STDOUT_SINGLELINE', "Processing lfile1")
         self.admin.assert_icommand("irsync -r i:" + irodshome + "/icmdtest/testy i:" + irodshome + "/icmdtest/testz")
         self.admin.assert_icommand("irm -vrf " + irodshome + "/icmdtest/testy")
-        self.admin.assert_icommand("iphymv -vrS " + irodsdefresource + " -R " +
-                                   self.testresc + " " + irodshome + "/icmdtest/testz", 'STDOUT_SINGLELINE', "icmdtest/testz")
+        # TODO: this must be skipped because iphymv requires a leaf resource for source and destination
+        #self.admin.assert_icommand("iphymv -vrS " + irodsdefresource + " -R " +
+                                   #self.testresc + " " + irodshome + "/icmdtest/testz", 'STDOUT_SINGLELINE', "icmdtest/testz")
 
         if os.path.isfile(lrsfile):
             os.unlink(lrsfile)

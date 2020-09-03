@@ -5,6 +5,7 @@ set(BUILD_UNIT_TESTS YES CACHE BOOL "Build unit tests")
 set(UNIT_TESTS_RUN_AFTER_BUILD NO CACHE BOOL "Run after building unit tests")
 set(UNIT_TESTS_REPORTING_STYLE "junit" CACHE STRING "The style of output used for unit test reporting [console, compact, junit, xml]")
 set(UNIT_TESTS_REPORT_FILENAME "report.xml" CACHE STRING "The filename of the unit test report")
+set(UNIT_TESTS_ENABLE_ALL NO CACHE BOOL "Enables all unit tests")
 
 if (NOT BUILD_UNIT_TESTS)
     return()
@@ -29,18 +30,36 @@ if (UNIT_TESTS_RUN_AFTER_BUILD)
                          -o ${UNIT_TESTS_REPORT_FILENAME})
 endif()
 
+if (UNIT_TESTS_ENABLE_ALL)
+    add_definitions(-DIRODS_ENABLE_ALL_UNIT_TESTS)
+endif()
+
 # List of cmake files defined under ./cmake/test_config.
 # Each file in the ./cmake/test_config directory defines variables for a specific test.
 # New tests should be added to this list.
-set(TEST_INCLUDE_LIST test_config/irods_connection_pool
+set(TEST_INCLUDE_LIST test_config/irods_atomic_apply_acl_operations
+                      test_config/irods_atomic_apply_metadata_operations
+                      test_config/irods_client_connection
+                      test_config/irods_connection_pool
+                      test_config/irods_data_object_modify_info
                       test_config/irods_dstream
                       test_config/irods_filesystem
+                      test_config/irods_get_file_descriptor_info
                       test_config/irods_hierarchy_parser
                       test_config/irods_key_value_proxy
                       test_config/irods_lifetime_manager
                       test_config/irods_linked_list_iterator
                       test_config/irods_logical_paths_and_special_characters
-                      test_config/irods_query_builder)
+                      test_config/irods_parallel_transfer_engine
+                      test_config/irods_query_builder
+                      test_config/irods_replica_access_table
+                      test_config/irods_replica_open_and_close
+                      test_config/irods_resource_administration
+                      test_config/irods_scoped_client_identity
+                      test_config/irods_scoped_privileged_client
+                      test_config/irods_shared_memory_object
+                      test_config/irods_user_administration
+                      test_config/irods_with_durability)
 
 foreach(IRODS_TEST_CONFIG ${TEST_INCLUDE_LIST})
     unset_irods_test_variables()

@@ -8,11 +8,13 @@
 
 // =-=-=-=-=-=-=-
 #include "irods_data_object.hpp"
+#include "irods_hierarchy_parser.hpp"
 #include "irods_physical_object.hpp"
 
 // =-=-=-=-=-=-=-
 // stl includes
 #include <vector>
+#include <tuple>
 
 namespace irods {
 
@@ -87,7 +89,8 @@ namespace irods {
             virtual int                            repl_requested()  const {
                 return repl_requested_;
             }
-            virtual std::vector< physical_object > replicas()        const {
+            // IF IT BLOWS UP, THIS IS WHY (ref)
+            virtual const std::vector< physical_object >& replicas() const {
                 return replicas_;
             }
             virtual const std::string&             in_pdmo()         const {
@@ -116,6 +119,9 @@ namespace irods {
             }
             virtual void replicas( const std::vector< physical_object >& _v ) {
                 replicas_ = _v;
+            }
+            virtual std::vector<physical_object>& replicas() {
+                return replicas_;
             }
 
         protected:
@@ -146,10 +152,10 @@ namespace irods {
 
 // =-=-=-=-=-=-=-
 // factory function which will take a dataObjInfo pointer and create a file_object
-    error file_object_factory( rsComm_t*,         // server network connection
-                               dataObjInp_t*,     // incoming data object request struct
-                               file_object_ptr,   // out var for file object
-							   dataObjInfo_t** );
+    error file_object_factory(rsComm_t*        _comm,
+                              dataObjInp_t*    _data_obj_inp,
+                              file_object_ptr  _file_obj,
+                              dataObjInfo_t**  _data_obj_info = nullptr);
 
 }; // namespace irods
 

@@ -154,9 +154,7 @@ def run_schema_update(config_dict, schema_name, next_schema_version):
                 for f in config_dict['federation']:
                     f['catalog_provider_hosts'] = [f.pop('icat_host')]
             config_dict['rule_engine_namespaces'] = [
-                    '',
-                    'audit_',
-                    'indexing_'
+                    ''
                 ]
             config_dict.setdefault('plugin_configuration', {})['rule_engines'] = [
                     {
@@ -171,7 +169,7 @@ def run_schema_update(config_dict, schema_name, next_schema_version):
                                 ('regexes_for_supported_peps', [
                                         'ac[^ ]*',
                                         'msi[^ ]*',
-                                        '[^ ]*pep_[^ ]*_(pre|post)'
+                                        '[^ ]*pep_[^ ]*_(pre|post|except|finally)'
                                     ]
                                 )
                             ]
@@ -198,8 +196,6 @@ def run_schema_update(config_dict, schema_name, next_schema_version):
                 with open(paths.database_config_path()) as f:
                     database_config = json.load(f)
                 config_dict['plugin_configuration'].setdefault('database', {})[database_config.pop('catalog_database_type')] = database_config
-
-
 
     config_dict['schema_version'] = 'v%d' % (next_schema_version)
     return config_dict

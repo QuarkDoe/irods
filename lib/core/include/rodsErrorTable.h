@@ -52,6 +52,15 @@ namespace {
         }
     }
 }
+
+namespace irods {
+	inline void fill_error_constants ( std::map<std::string,int> & dest )
+	{
+		for (const auto &[k,v]: irods_error_map_construction::irods_error_name_map) {
+			dest[k] = v;
+		}
+	}
+}
 #define NEW_ERROR(err_name, err_code) const int err_name = irods_error_map_construction::create_error( #err_name, err_code, err_name );
 #else
 #define NEW_ERROR(err_name, err_code) err_name = err_code,
@@ -220,6 +229,7 @@ NEW_ERROR(SYS_SOCK_CONNECT_ERR,                        -162000)
 NEW_ERROR(SYS_OPERATION_IN_PROGRESS,                   -163000)
 NEW_ERROR(SYS_REPLICA_DOES_NOT_EXIST,                  -164000)
 NEW_ERROR(SYS_UNKNOWN_ERROR,                           -165000)
+NEW_ERROR(SYS_NO_GOOD_REPLICA,                         -166000)
 /** @} */
 
 /* 300,000 - 499,000 - user input type error */
@@ -287,6 +297,8 @@ NEW_ERROR(USER_INSUFFICIENT_FREE_INODES,               -400000)
 NEW_ERROR(USER_FILE_SIZE_MISMATCH,                     -401000)
 NEW_ERROR(USER_INCOMPATIBLE_PARAMS,                    -402000)
 NEW_ERROR(USER_INVALID_REPLICA_INPUT,                  -403000)
+NEW_ERROR(USER_INCOMPATIBLE_OPEN_FLAGS,                -404000)
+NEW_ERROR(USER_INTERMEDIATE_REPLICA_ACCESS,            -405000)
 /** @} */
 
 /* 500,000 to 800,000 - file driver error */
@@ -395,7 +407,7 @@ NEW_ERROR(HDFS_FILE_OPENDIR_ERR,                       -743000)
 NEW_ERROR(HDFS_FILE_CLOSEDIR_ERR,                      -744000)
 NEW_ERROR(HDFS_FILE_READDIR_ERR,                       -745000)
 NEW_ERROR(HDFS_FILE_STAGE_ERR,                         -746000)
-NEW_ERROR(HDFS_FILE_GET_FS_FREESPACE_ERR,              -746000)
+NEW_ERROR(HDFS_FILE_GET_FS_FREESPACE_ERR,              -747000)
 NEW_ERROR(HDFS_FILE_CHMOD_ERR,                         -748000)
 NEW_ERROR(HDFS_FILE_RENAME_ERR,                        -749000)
 NEW_ERROR(HDFS_FILE_TRUNCATE_ERR,                      -760000)

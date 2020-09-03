@@ -8,10 +8,8 @@
 
 #include <chrono>
 
-namespace irods {
-namespace experimental {
-namespace filesystem {
-
+namespace irods::experimental::filesystem
+{
     namespace NAMESPACE_IMPL
     {
         class collection_iterator;
@@ -30,7 +28,7 @@ namespace filesystem {
         auto is_data_object() const noexcept -> bool              { return filesystem::NAMESPACE_IMPL::is_data_object(status_); }
         auto is_collection() const noexcept -> bool               { return filesystem::NAMESPACE_IMPL::is_collection(status_); }
         auto is_other() const noexcept -> bool                    { return filesystem::NAMESPACE_IMPL::is_other(status_); }
-        auto data_object_size() -> std::uintmax_t                 { return static_cast<std::uintmax_t>(data_size_); }
+        auto data_object_size() const noexcept -> std::uintmax_t  { return data_size_; }
         auto creation_time() const noexcept -> object_time_type   { return ctime_; }
         auto last_write_time() const noexcept -> object_time_type { return mtime_; }
         auto status() const noexcept -> const object_status&      { return status_; }
@@ -65,9 +63,6 @@ namespace filesystem {
         mutable std::string owner_;
         mutable std::string data_type_;
     };
-
-} // namespace filesystem
-} // namespace experimental
-} // namespace irods
+} // namespace irods::experimental::filesystem
 
 #endif // IRODS_FILESYSTEM_COLLECTION_ENTRY_HPP

@@ -22,11 +22,6 @@ from ..core_file import temporary_core_file
 from .rule_texts_for_tests import rule_texts
 from ..controller import IrodsController
 
-
-
-
-
-
 def exec_icat_command(command):
     import paramiko
 
@@ -75,8 +70,11 @@ class Test_Native_Rule_Engine_Plugin(resource_suite.ResourceBase, unittest.TestC
             self.admin.run_icommand(icommand)
 
         def check_string_count_in_log_section(string, n_occurrences):
-            count = lib.count_occurrences_of_string_in_log(paths.server_log_path(), string, start_index=initial_size_of_server_log)
-            self.assertTrue (n_occurrences == count, msg='Found {0} instead of {1} occurrences of {2}'.format(count, n_occurrences, string))
+            lib.delayAssert(
+                lambda: lib.log_message_occurrences_equals_count(
+                    msg=string,
+                    count=n_occurrences,
+                    start_index=initial_size_of_server_log))
 
         if  isinstance(strings_to_check_for, dict):
             for s,n  in  strings_to_check_for.items():
@@ -84,6 +82,33 @@ class Test_Native_Rule_Engine_Plugin(resource_suite.ResourceBase, unittest.TestC
         else:
             for s in strings_to_check_for:
                 check_string_count_in_log_section (s,number_of_strings_to_look_for)
+
+
+
+    @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python' or test.settings.TOPOLOGY_FROM_RESOURCE_SERVER, 'Native only test when not in a topology')
+    def test_failing_on_code_5043 (self):
+        with temporary_core_file() as core:
+            rule_code = rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name]
+            core.add_rule( rule_code )
+            with tempfile.NamedTemporaryFile(suffix='.r') as rule_file:
+                rule_file_text = rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name + "__rule_file"]
+                print (rule_file_text, file = rule_file)
+                rule_file.flush()
+                self.admin.assert_icommand(['irule','-r','irods_rule_engine_plugin-irods_rule_language-instance','-F',rule_file.name],
+                                           'STDOUT_SINGLELINE', ["true"])
+
+
+    @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python' or test.settings.TOPOLOGY_FROM_RESOURCE_SERVER, 'Native only test when not in a topology')
+    def test_error_smsi_5043 (self):
+        with temporary_core_file() as core:
+            rule_code = rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name]
+            core.add_rule( rule_code )
+            rule_file_text = rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name + '__rule_file']
+            with tempfile.NamedTemporaryFile(suffix='.r') as rule_file:
+                print (rule_file_text, file = rule_file)
+                rule_file.flush()
+                self.admin.assert_icommand(['irule','-F',rule_file.name], 'STDOUT_MULTILINE', ['SYS_INTERNAL_ERR = -154000',
+                                                                                               'RULE_ENGINE_CONTINUE = 5000000'])
 
 
     @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python' or test.settings.TOPOLOGY_FROM_RESOURCE_SERVER, 'Native only test when not in a topology')
@@ -305,15 +330,15 @@ class Test_Native_Rule_Engine_Plugin(resource_suite.ResourceBase, unittest.TestC
         irodsctl.restart()
 
     def test_auth_pep(self):
-        self.helper_test_pep(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name], "iput -f --metadata ATTR;VALUE;UNIT "+self.testfile, ['THIS IS AN OUT VARIABLE'], 2)
+        self.helper_test_pep(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name], "iput -f --metadata ATTR;VALUE;UNIT "+self.testfile)
 
     def test_out_variable(self):
-        self.helper_test_pep(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name], "iput -f --metadata ATTR;VALUE;UNIT "+self.testfile, ['THIS IS AN OUT VARIABLE'], 2)
+        self.helper_test_pep(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name], "iput -f --metadata ATTR;VALUE;UNIT "+self.testfile)
 
     @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python', 'Python rule engine does not use re_serialization except for api plugins')
     def test_re_serialization(self):
         self.helper_test_pep(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name], "iput -f --metadata ATTR;VALUE;UNIT "+self.testfile,
-            ['file_size=33', 'logical_path=/tempZone/home/otherrods', 'metadataIncluded'], 2)
+            ['file_size=33', 'logical_path=/tempZone/home/otherrods', 'metadataIncluded'])
 
     def test_api_plugin(self):
         self.helper_test_pep(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name], "iapitest", ['pep_api_hello_world_pre -', ', null_value', 'HELLO WORLD', 'pep_api_hello_world_post -', 'value=128'])
@@ -329,7 +354,7 @@ class Test_Native_Rule_Engine_Plugin(resource_suite.ResourceBase, unittest.TestC
         with open(rule_file1, 'wt') as f:
             print(rule_string1, file=f, end='')
 
-        out, _, _ = self.admin.run_icommand("irule -F " + rule_file1)
+        out, _, _ = self.admin.run_icommand("irule -r irods_rule_engine_plugin-irods_rule_language-instance -F " + rule_file1)
         assert 'Update session variable $userNameClient not allowed' in out
 
         rule_file2 = "rule2_2242.r"
@@ -338,7 +363,7 @@ class Test_Native_Rule_Engine_Plugin(resource_suite.ResourceBase, unittest.TestC
         with open(rule_file2, 'wt') as f:
             print(rule_string2, file=f, end='')
 
-        self.admin.assert_icommand("irule -F " + rule_file2, "EMPTY")
+        self.admin.assert_icommand("irule -r irods_rule_engine_plugin-irods_rule_language-instance -F " + rule_file2, "EMPTY")
 
     @unittest.skipIf(test.settings.TOPOLOGY_FROM_RESOURCE_SERVER, 'Skip for topology testing from resource server: reads re server log')
     def test_rule_engine_2309(self):
@@ -355,9 +380,15 @@ class Test_Native_Rule_Engine_Plugin(resource_suite.ResourceBase, unittest.TestC
 
                 initial_size_of_server_log = lib.get_file_size_by_path(paths.server_log_path())
                 self.admin.assert_icommand('iput {0}'.format(trigger_file))
-                assert 1 == lib.count_occurrences_of_string_in_log(
-                    paths.server_log_path(), 'writeLine: inString = test_rule_engine_2309: put: acSetNumThreads oprType [1]', start_index=initial_size_of_server_log)
-                assert 0 == lib.count_occurrences_of_string_in_log(paths.server_log_path(), 'RE_UNABLE_TO_READ_SESSION_VAR', start_index=initial_size_of_server_log)
+                lib.delayAssert(
+                    lambda: lib.log_message_occurrences_equals_count(
+                        msg='writeLine: inString = test_rule_engine_2309: put: acSetNumThreads oprType [1]',
+                        start_index=initial_size_of_server_log))
+                lib.delayAssert(
+                    lambda: lib.log_message_occurrences_equals_count(
+                        msg='RE_UNABLE_TO_READ_SESSION_VAR',
+                        count=0,
+                        start_index=initial_size_of_server_log))
                 os.unlink(trigger_file)
 
             with temporary_core_file() as core:
@@ -367,14 +398,19 @@ class Test_Native_Rule_Engine_Plugin(resource_suite.ResourceBase, unittest.TestC
 
                 initial_size_of_server_log = lib.get_file_size_by_path(paths.server_log_path())
                 self.admin.assert_icommand('iget {0}'.format(trigger_file), use_unsafe_shell=True)
-                assert 1 == lib.count_occurrences_of_string_in_log(
-                    paths.server_log_path(), 'writeLine: inString = test_rule_engine_2309: get: acSetNumThreads oprType [2]', start_index=initial_size_of_server_log)
-                assert 0 == lib.count_occurrences_of_string_in_log(paths.server_log_path(), 'RE_UNABLE_TO_READ_SESSION_VAR', start_index=initial_size_of_server_log)
+                lib.delayAssert(
+                    lambda: lib.log_message_occurrences_equals_count(
+                        msg='writeLine: inString = test_rule_engine_2309: get: acSetNumThreads oprType [2]',
+                        start_index=initial_size_of_server_log))
+                lib.delayAssert(
+                    lambda: lib.log_message_occurrences_equals_count(
+                        msg='RE_UNABLE_TO_READ_SESSION_VAR',
+                        count = 0,
+                        start_index=initial_size_of_server_log))
                 os.unlink(trigger_file)
 
     @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only applicable for irods_rule_language REP')
     def test_SYS_NOT_SUPPORTED__4174(self):
-
         rule_file = 'test_SYS_NOT_SUPPORTED__4174.r'
         rule_string = '''
 test_SYS_NOT_SUPPORTED__4174_rule {
@@ -387,7 +423,7 @@ OUTPUT ruleExecOut
         with open(rule_file, 'w') as f:
             f.write(rule_string)
 
-        self.admin.assert_icommand('irule -F ' + rule_file, 'STDERR_SINGLELINE','SYS_NOT_SUPPORTED')
+        self.admin.assert_icommand('irule -r irods_rule_engine_plugin-irods_rule_language-instance -F ' + rule_file, 'STDERR_SINGLELINE', 'SYS_NOT_SUPPORTED')
         os.unlink(rule_file)
 
     max_literal_strlen = 1021 # MAX_TOKEN_TEXT_LEN - 2
@@ -407,19 +443,19 @@ OUTPUT ruleExecOut
         rule_file = 'test_string_literal__4311.r'
         with open(rule_file, 'w') as f:
             f.write(rule_text)
-        self.admin.assert_icommand(['irule', '-F', rule_file], 'STDERR', ["ERROR"], desired_rc = 4)
+        rep_name = 'irods_rule_engine_plugin-irods_rule_language-instance'
+        self.admin.assert_icommand(['irule', '-r', rep_name, '-F', rule_file], 'STDERR', ['ERROR'], desired_rc = 4)
 
         rule_file_2 = 'test_string_literal__4311_noerr.r'
         with open(rule_file_2, 'w') as f:
             f.write(rule_text.replace('".','"'))
-        self.admin.assert_icommand(['irule', '-F', rule_file_2],'STDOUT_SINGLELINE',str(self.max_literal_strlen))
+        self.admin.assert_icommand(['irule', '-r', rep_name, '-F', rule_file_2], 'STDOUT_SINGLELINE', str(self.max_literal_strlen))
 
         os.remove(rule_file)
         os.remove(rule_file_2)
 
     @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python', 'rule language only: irods#4311')
     def test_string_input__4311(self):
-
         rule_text = '''
 main {
   msiStrlen(*a,*L)
@@ -430,15 +466,15 @@ OUTPUT ruleExecOut
 ''' % ('a'*self.max_literal_strlen,)
 
         rule_file = 'test_string_input__4311.r'
-
         with open(rule_file, 'w') as f:
             f.write(rule_text)
-        self.admin.assert_icommand(['irule', '-F', rule_file], 'STDERR', ["ERROR"], desired_rc = 4)
+        rep_name = 'irods_rule_engine_plugin-irods_rule_language-instance'
+        self.admin.assert_icommand(['irule', '-r', rep_name, '-F', rule_file], 'STDERR', ["ERROR"], desired_rc = 4)
 
         rule_file_2 = 'test_string_input__4311_noerr.r'
         with open(rule_file_2, 'w') as f:
             f.write(rule_text.replace('".','"'))
-        self.admin.assert_icommand(['irule', '-F', rule_file_2],'STDOUT_SINGLELINE',str(self.max_literal_strlen))
+        self.admin.assert_icommand(['irule', '-r', rep_name, '-F', rule_file_2], 'STDOUT_SINGLELINE', str(self.max_literal_strlen))
 
         os.remove(rule_file)
         os.remove(rule_file_2)
@@ -447,12 +483,18 @@ OUTPUT ruleExecOut
     def test_msiSegFault(self):
         rule_text = rule_texts[self.plugin_name][self.class_name]['test_msiSegFault']
         rule_file = 'test_msiSegFault.r'
+
         with open(rule_file, 'w') as f:
             f.write(rule_text)
+
         try:
+            rep_name = 'irods_rule_engine_plugin-irods_rule_language-instance'
+
             # Should get SYS_INTERNAL_ERR because it's a segmentation fault
-            self.admin.assert_icommand(['irule', '-F', rule_file],'STDERR','SYS_INTERNAL_ERR')
-            # Should get CAT_INSUFFICIENT_PRIVILEGE_LEVEL because this is for admin users only
-            self.user0.assert_icommand(['irule', '-F', rule_file],'STDERR','CAT_INSUFFICIENT_PRIVILEGE_LEVEL')
+            self.admin.assert_icommand(['irule', '-r', rep_name, '-F', rule_file], 'STDERR', 'SYS_INTERNAL_ERR')
+
+            # Should get CAT_INSUFFICIENT_PRIVILEGE_LEVEL in the log because this is for admin users only
+            self.user0.assert_icommand(['irule', '-r', rep_name, '-F', rule_file], 'STDERR', 'CAT_INSUFFICIENT_PRIVILEGE_LEVEL')
+
         finally:
             os.unlink(rule_file)

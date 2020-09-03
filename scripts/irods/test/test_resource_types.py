@@ -23,6 +23,7 @@ from ..configuration import IrodsConfig
 from ..controller import IrodsController
 from ..core_file import temporary_core_file, CoreFile
 from .. import test
+from .. import paths
 from . import settings
 from .. import lib
 from .resource_suite import ResourceSuite, ResourceBase
@@ -164,23 +165,7 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
 
     @unittest.skip("no support for non-compound resources")
     def test_iput_with_purgec(self):
-        # local setup
-        filename = "purgecfile.txt"
-        filepath = os.path.abspath(filename)
-        with open(filepath, 'wt') as f:
-            print("TESTFILE -- [" + filepath + "]", file=f, end='')
-
-        # assertions
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        # should not be listed (trimmed)
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
-        # should be listed once - replica 1
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
-
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        pass
 
     @unittest.skip("no support for non-compound resources")
     def test_iget_with_purgec(self):
@@ -193,7 +178,7 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file and purge 'cached' replica
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed once
@@ -213,7 +198,7 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed twice - 2 of 3
@@ -348,7 +333,7 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -427,6 +412,7 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         os.remove(doublefile)
 
 
+@unittest.skip('Round Robin is deprecated and non-deterministic under load - #3778')
 class Test_Resource_RoundRobinWithinReplication(ChunkyDevTest, ResourceSuite, unittest.TestCase):
 
     def setUp(self):
@@ -503,23 +489,7 @@ class Test_Resource_RoundRobinWithinReplication(ChunkyDevTest, ResourceSuite, un
 
     @unittest.skip("no support for non-compound resources")
     def test_iput_with_purgec(self):
-        # local setup
-        filename = "purgecfile.txt"
-        filepath = os.path.abspath(filename)
-        with open(filepath, 'wt') as f:
-            print("TESTFILE -- [" + filepath + "]", file=f, end='')
-
-        # assertions
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        # should not be listed (trimmed)
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
-        # should be listed once - replica 1
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
-
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        pass
 
     @unittest.skip('does not deterministically purge repl 0')
     def test_iget_with_purgec(self):
@@ -532,7 +502,7 @@ class Test_Resource_RoundRobinWithinReplication(ChunkyDevTest, ResourceSuite, un
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file and purge 'cached' replica
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed once
@@ -552,7 +522,7 @@ class Test_Resource_RoundRobinWithinReplication(ChunkyDevTest, ResourceSuite, un
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed twice - 2 of 3
@@ -687,7 +657,7 @@ class Test_Resource_RoundRobinWithinReplication(ChunkyDevTest, ResourceSuite, un
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -803,13 +773,23 @@ OUTPUT ruleExecOut
         with open(rule_file_path, 'w') as rule_file:
             rule_file.write(rule_str)
 
-        initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
-        rc,_,stderr = self.admin.assert_icommand_fail(['irule', '-F', rule_file_path])
+        config = IrodsConfig()
 
-        self.admin.assert_icommand(['ilsresc', '-l', 'demoResc'], 'STDOUT_SINGLELINE', ['free space', free_space])
-        self.assertTrue(0 != rc)
-        self.assertTrue('status = -32000 SYS_INVALID_RESC_INPUT' in stderr)
-        self.assertTrue(1 == lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'could not find existing non-root path from vault path', start_index=initial_log_size))
+        with lib.file_backed_up(config.client_environment_path):
+            lib.update_json_file_from_dict(config.client_environment_path, {'irods_log_level': 7})
+
+            log_offset = lib.get_file_size_by_path(paths.server_log_path())
+            rc, _, stderr = self.admin.assert_icommand_fail(['irule', '-r', 'irods_rule_engine_plugin-irods_rule_language-instance', '-F', rule_file_path])
+
+            self.admin.assert_icommand(['ilsresc', '-l', 'demoResc'], 'STDOUT_SINGLELINE', ['free space', free_space])
+            self.assertTrue(0 != rc)
+            self.assertTrue('status = -32000 SYS_INVALID_RESC_INPUT' in stderr)
+
+            msg = 'could not find existing non-root path from vault path'
+            lib.delayAssert(
+                lambda: lib.log_message_occurrences_equals_count(
+                    msg=msg,
+                    start_index=log_offset))
 
         os.unlink(rule_file_path)
 
@@ -876,7 +856,13 @@ OUTPUT ruleExecOut
 
         initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
         self.user0.assert_icommand('iget -f --kv_pass="get_key=val3" file.txt other.txt')
-        assert lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'key [get_key] - value [val3]', start_index=initial_log_size) in [1, 2]  # double print if collection missing
+        # double print if collection missing
+        lib.delayAssert(
+            lambda: lib.log_message_occurrences_is_one_of_list_of_counts(
+                msg='key [get_key] - value [val3]',
+                expected_value_list=[1,2],
+                server_log_path=IrodsConfig().server_log_path,
+                start_index=initial_log_size))
         IrodsController().restart()
         if os.path.exists('file.txt'):
             os.unlink('file.txt')
@@ -917,7 +903,7 @@ OUTPUT ruleExecOut
         new_digest = lib.file_digest(file_vault_full_path, 'sha256', encoding='base64')
         self.admin.assert_icommand('ifsck ' + file_vault_full_path, 'STDOUT_SINGLELINE', ['CORRUPTION', 'not consistent with iRODS object'])  # ifsck
         # unregister, reregister (to update filesize in iCAT), recalculate checksum, and confirm
-        self.admin.assert_icommand('irm -U ' + full_logical_path)
+        self.admin.assert_icommand('iunreg ' + full_logical_path)
         self.admin.assert_icommand('ireg ' + file_vault_full_path + ' ' + full_logical_path)
         self.admin.assert_icommand('ifsck -K ' + file_vault_full_path, 'STDOUT_SINGLELINE', ['WARNING: checksum not available'])  # ifsck
         self.admin.assert_icommand('ichksum -f ' + full_logical_path, 'STDOUT_MULTILINE',
@@ -1286,7 +1272,7 @@ class Test_Resource_CompoundWithMockarchive(ChunkyDevTest, ResourceSuite, unitte
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -1414,18 +1400,27 @@ class Test_Resource_CompoundWithMockarchive(ChunkyDevTest, ResourceSuite, unitte
         with open(filepath, 'wt') as f:
             print("TESTFILE -- [" + filepath + "]", file=f, end='')
 
-        # assertions
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        # should not be listed (trimmed)
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
-        # should be listed once - replica 1
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+        try:
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
+            self.admin.assert_icommand("iput --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            # should be listed once - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+            self.admin.assert_icommand(['irm', '-f', filename])
 
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
+            self.admin.assert_icommand(['iput', '-b', '--purgec', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file... in bulk!
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            # should be listed once - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+
+        finally:
+            if os.path.exists(filepath):
+                os.unlink(filepath)
 
     def test_iget_with_purgec(self):
         # local setup
@@ -1437,7 +1432,7 @@ class Test_Resource_CompoundWithMockarchive(ChunkyDevTest, ResourceSuite, unitte
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file and purge 'cached' replica
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed once
@@ -1457,7 +1452,7 @@ class Test_Resource_CompoundWithMockarchive(ChunkyDevTest, ResourceSuite, unitte
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed twice - 2 of 3
@@ -1504,8 +1499,12 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
         irods_config = IrodsConfig()
         initial_log_size = lib.get_file_size_by_path(irods_config.server_log_path)
         self.admin.assert_icommand("irm " + self.testfile ) # remove archive replica
-        count = lib.count_occurrences_of_string_in_log(irods_config.server_log_path, 'argv:stageToCache', start_index=initial_log_size)
-        assert 0 == count
+        lib.delayAssert(
+            lambda: lib.log_message_occurrences_equals_count(
+                msg='argv:stageToCache',
+                count=0,
+                server_log_path=irods_config.server_log_path,
+                start_index=initial_log_size))
 
     def test_irm_specific_replica(self):
         self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', self.testfile)  # should be listed
@@ -1601,7 +1600,7 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -1729,18 +1728,27 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
         with open(filepath, 'wt') as f:
             print("TESTFILE -- [" + filepath + "]", file=f, end='')
 
-        # assertions
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        # should not be listed (trimmed)
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
-        # should be listed once - replica 1
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+        try:
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
+            self.admin.assert_icommand("iput --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            # should be listed once - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+            self.admin.assert_icommand(['irm', '-f', filename])
 
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
+            self.admin.assert_icommand(['iput', '-b', '--purgec', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file... in bulk!
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            # should be listed once - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+
+        finally:
+            if os.path.exists(filepath):
+                os.unlink(filepath)
 
     def test_iget_with_purgec(self):
         # local setup
@@ -1752,7 +1760,7 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file and purge 'cached' replica
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed once
@@ -1772,7 +1780,7 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed twice - 2 of 3
@@ -1921,9 +1929,9 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         self.user1.assert_icommand("iput -R TestResc " + filename)
 
         logical_path = os.path.join( self.user1.session_collection, filename )
-        self.admin.assert_icommand("iphymv -M -R demoResc " + logical_path )
-        self.admin.assert_icommand("ils -l " + logical_path, 'STDOUT_SINGLELINE', 'cacheResc')
-        self.admin.assert_icommand("ils -l " + logical_path, 'STDOUT_SINGLELINE', 'archiveResc')
+        self.admin.assert_icommand("iphymv -M -S TestResc -R cacheResc " + logical_path )
+        self.admin.assert_icommand("ils -l " + logical_path, 'STDOUT_SINGLELINE', ['&', 'cacheResc'])
+        self.admin.assert_icommand("ils -l " + logical_path, 'STDOUT_SINGLELINE', ['&', 'archiveResc'])
 
     def test_irepl_as_admin__2988(self):
         filename = "test_irepl_as_admin__2988_file.txt"
@@ -2115,10 +2123,9 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         self.admin.assert_icommand("iget -f %s %s" % (filename, retrievedfile))  # get file from cache
 
         # confirm retrieved file is same as original
-        assert 0 == os.system("diff %s %s" % (filepath, retrievedfile))
+        self.assertEqual(0, os.system("diff %s %s" % (filepath, retrievedfile)))
 
         # manipulate the core.re to add the new policy
-
         with temporary_core_file() as core:
             time.sleep(1)  # remove once file hash fix is committed #2279
             core.add_rule(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name])
@@ -2131,7 +2138,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
             out, _, _ = self.admin.run_icommand('ils -L ' + filename)
             archivereplicaphypath = filter(lambda x : "archiveRescVault" in x, out.split())[0]
             with open(archivereplicaphypath, 'wt') as f:
-                print('MANUALLY UPDATED ON ARCHIVE **AGAIN**\n', file=f, end='')
+                print('UPDATED ARCHIVE AGAIN\n', file=f, end='')
 
             # get the file
             self.admin.assert_icommand("iget -f %s %s" % (filename, retrievedfile))  # get file from archive
@@ -2140,9 +2147,9 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
             matchfound = False
             with open(retrievedfile) as f:
                 for line in f:
-                    if "**AGAIN**" in line:
+                    if "AGAIN" in line:
                         matchfound = True
-            assert matchfound
+            self.assertTrue(matchfound)
 
         # local cleanup
         os.remove(filepath)
@@ -2221,7 +2228,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -2349,18 +2356,27 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         with open(filepath, 'wt') as f:
             print("TESTFILE -- [" + filepath + "]", file=f, end='')
 
-        # assertions
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        # should not be listed (trimmed)
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
-        # should be listed once - replica 1
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+        try:
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
+            self.admin.assert_icommand("iput --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            # should be listed once - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+            self.admin.assert_icommand(['irm', '-f', filename])
 
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
+            self.admin.assert_icommand(['iput', '-b', '--purgec', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file... in bulk!
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            # should be listed once - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+
+        finally:
+            if os.path.exists(filepath):
+                os.unlink(filepath)
 
     def test_iget_with_purgec(self):
         # local setup
@@ -2373,7 +2389,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should be listed
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file and purge 'cached' replica
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed once
@@ -2393,7 +2409,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed twice - 2 of 3
@@ -2453,7 +2469,7 @@ class Test_Resource_ReplicationWithinReplication(ChunkyDevTest, ResourceSuite, u
         # assertions
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # replica 0 should be trimmed
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # replica 1 should be listed
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # replica 2 should be listed
@@ -2464,22 +2480,7 @@ class Test_Resource_ReplicationWithinReplication(ChunkyDevTest, ResourceSuite, u
 
     @unittest.skip("no support for non-compound resources")
     def test_iput_with_purgec(self):
-        # local setup
-        filename = "purgecfile.txt"
-        filepath = os.path.abspath(filename)
-        with open(filepath, 'wt') as f:
-            print("TESTFILE -- [" + filepath + "]", file=f, end='')
-
-        # assertions
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # replica 0 should be trimmed
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # replica 1 should be listed
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # replica 2 should be listed
-
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        pass
 
     @unittest.skip("no support for non-compound resources")
     def test_irepl_with_purgec(self):
@@ -2492,7 +2493,7 @@ class Test_Resource_ReplicationWithinReplication(ChunkyDevTest, ResourceSuite, u
         # assertions
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # replica 0 should be trimmed
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # replica 1 should be listed
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # replica 2 should be listed
@@ -2635,7 +2636,7 @@ class Test_Resource_ReplicationWithinReplication(ChunkyDevTest, ResourceSuite, u
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -2821,10 +2822,13 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
 
         # get file
         retrievedfile = "retrieved.txt"
-        os.system("rm -f %s" % retrievedfile)
-        self.admin.assert_icommand("iget -f %s %s" % (filename, retrievedfile))  # get file from cache
+        if os.path.exists(retrievedfile):
+            os.unlink(retrievedfile)
+        self.admin.assert_icommand(['iget', '-f', filename, retrievedfile])  # get file from cache
         # confirm retrieved file is same as original
-        assert 0 == os.system("diff %s %s" % (filepath, retrievedfile))
+        self.assertTrue(os.path.exists(retrievedfile))
+        self.assertTrue(os.path.exists(filepath))
+        self.assertEqual(0, os.system("diff %s %s" % (filepath, retrievedfile))) 
         print("original file diff confirmed")
 
         # manipulate the core.re to add the new policy
@@ -2843,9 +2847,9 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
             print(archive1replicaphypath)
             print(archive2replicaphypath)
             with open(archivereplica1phypath, 'wt') as f:
-                print('MANUALLY UPDATED ON ARCHIVE 1 **AGAIN**\n', file=f, end='')
+                print('UPDATED ARCHIVE 1 AGAIN\n', file=f, end='')
             with open(archivereplica2phypath, 'wt') as f:
-                print('MANUALLY UPDATED ON ARCHIVE 2 **AGAIN**\n', file=f, end='')
+                print('UPDATED ARCHIVE 2 AGAIN\n', file=f, end='')
 
             # confirm the new content is on disk
             with open(archivereplica1phypath) as f:
@@ -2953,7 +2957,7 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 6 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -3097,20 +3101,31 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
         with open(filepath, 'wt') as f:
             print("TESTFILE -- [" + filepath + "]", file=f, end='')
 
-        # assertions
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        # should not be listed (trimmed)
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - replica 1
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed 3x - replica 2
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", filename])  # should be listed 3x - replica 3
-        # should not have any extra replicas
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", filename])
+        try:
+            self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
+            self.admin.assert_icommand("iput --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed 3x - replica 2
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", filename])  # should be listed 3x - replica 3
+            # should not have any extra replicas
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", filename])
+            self.admin.assert_icommand(['irm', '-f', filename])
 
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+            self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
+            self.admin.assert_icommand(['iput', '-b', '--purgec', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file... in bulk!
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed 3x - replica 2
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", filename])  # should be listed 3x - replica 3
+            # should not have any extra replicas
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", filename])
+
+        finally:
+            if os.path.exists(filepath):
+                os.unlink(filepath)
 
     def test_iget_with_purgec(self):
         # local setup
@@ -3122,7 +3137,7 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
         # assertions
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file and purge 'cached' replica
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - replica 1
@@ -3145,7 +3160,7 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 4x - replica 1
@@ -3336,7 +3351,7 @@ class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDev
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 6 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -3480,20 +3495,31 @@ class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDev
         with open(filepath, 'wt') as f:
             print("TESTFILE -- [" + filepath + "]", file=f, end='')
 
-        # assertions
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        # should not be listed (trimmed)
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - replica 1
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed 3x - replica 2
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", filename])  # should be listed 3x - replica 3
-        # should not have any extra replicas
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", filename])
+        try:
+            self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
+            self.admin.assert_icommand("iput --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed 3x - replica 2
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", filename])  # should be listed 3x - replica 3
+            # should not have any extra replicas
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", filename])
+            self.admin.assert_icommand(['irm', '-f', filename])
 
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+            self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
+            self.admin.assert_icommand(['iput', '-b', '--purgec', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file... in bulk!
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed 3x - replica 2
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", filename])  # should be listed 3x - replica 3
+            # should not have any extra replicas
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", filename])
+
+        finally:
+            if os.path.exists(filepath):
+                os.unlink(filepath)
 
     def test_iget_with_purgec(self):
         # local setup
@@ -3505,7 +3531,7 @@ class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDev
         # assertions
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file and purge 'cached' replica
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - replica 1
@@ -3528,7 +3554,7 @@ class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDev
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 4x - replica 1
@@ -3614,7 +3640,6 @@ class Test_Resource_RoundRobin(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         # local cleanup
         if os.path.exists(filepath):
             os.unlink(filepath)
-
 
 class Test_Resource_Replication(ChunkyDevTest, ResourceSuite, unittest.TestCase):
     plugin_name = IrodsConfig().default_rule_engine_plugin
@@ -4063,7 +4088,7 @@ OUTPUT ruleExecOut
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -4199,26 +4224,7 @@ OUTPUT ruleExecOut
 
     @unittest.skip("no support for non-compound resources")
     def test_iput_with_purgec(self):
-        # local setup
-        filename = "purgecfile.txt"
-        filepath = os.path.abspath(filename)
-        with open(filepath, 'wt') as f:
-            print("TESTFILE -- [" + filepath + "]", file=f, end='')
-
-        # assertions
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
-        # put file, but trim 'cache' copy (purgec) (backwards compatibility)
-        self.admin.assert_icommand("iput --purgec " + filename)
-        # should not be listed (trimmed first replica)
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
-        # should be listed twice - replica 2 of 3
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
-        # should be listed twice - replica 3 of 3
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])
-
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        pass
 
     @unittest.skip("no support for non-compound resources")
     def test_iget_with_purgec(self):
@@ -4231,7 +4237,7 @@ OUTPUT ruleExecOut
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file and purge 'cached' replica
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed twice - 2 of 3
@@ -4252,7 +4258,7 @@ OUTPUT ruleExecOut
         # assertions
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         # should not be listed (trimmed)
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed 3x - 1 of 3
@@ -4262,39 +4268,6 @@ OUTPUT ruleExecOut
         # local cleanup
         if os.path.exists(filepath):
             os.unlink(filepath)
-
-    def test_rebalance_invocation_timestamp__3665(self):
-        # prepare out of balance tree with enough objects to trigger rebalance paging (>500)
-        localdir = '3665_tmpdir'
-        shutil.rmtree(localdir, ignore_errors=True)
-        lib.make_large_local_tmp_dir(dir_name=localdir, file_count=600, file_size=5)
-        self.admin.assert_icommand(['iput', '-r', localdir], "STDOUT_SINGLELINE", ustrings.recurse_ok_string())
-        self.admin.assert_icommand(['iadmin', 'mkresc', 'newchild', 'unixfilesystem', test.settings.HOSTNAME_1+':/tmp/newchildVault'], 'STDOUT_SINGLELINE', 'unixfilesystem')
-        self.admin.assert_icommand(['iadmin','addchildtoresc','demoResc','newchild'])
-        # run rebalance with concurrent, interleaved put/trim of new file
-        self.admin.assert_icommand(['ichmod','-r','own','rods',self.admin.session_collection])
-        self.admin.assert_icommand(['ichmod','-r','inherit',self.admin.session_collection])
-        laterfilesize = 300
-        laterfile = '3665_laterfile'
-        lib.make_file(laterfile, laterfilesize)
-        put_thread = Timer(2, subprocess.check_call, [('iput', '-R', 'demoResc', laterfile, self.admin.session_collection)])
-        trim_thread = Timer(3, subprocess.check_call, [('itrim', '-n3', self.admin.session_collection + '/' + laterfile)])
-        put_thread.start()
-        trim_thread.start()
-        self.admin.assert_icommand(['iadmin','modresc','demoResc','rebalance'])
-        put_thread.join()
-        trim_thread.join()
-        # new file should not be balanced (rebalance should have skipped it due to it being newer)
-        self.admin.assert_icommand(['ils', '-l', laterfile], 'STDOUT_SINGLELINE', [str(laterfilesize), ' 0 ', laterfile])
-        self.admin.assert_icommand(['ils', '-l', laterfile], 'STDOUT_SINGLELINE', [str(laterfilesize), ' 1 ', laterfile])
-        self.admin.assert_icommand(['ils', '-l', laterfile], 'STDOUT_SINGLELINE', [str(laterfilesize), ' 2 ', laterfile])
-        self.admin.assert_icommand_fail(['ils', '-l', laterfile], 'STDOUT_SINGLELINE', [str(laterfilesize), ' 3 ', laterfile])
-        # cleanup
-        os.unlink(laterfile)
-        shutil.rmtree(localdir, ignore_errors=True)
-        self.admin.assert_icommand(['iadmin','rmchildfromresc','demoResc','newchild'])
-        self.admin.assert_icommand(['itrim', '-Snewchild', '-r', '/tempZone'], 'STDOUT_SINGLELINE', 'Total size trimmed')
-        self.admin.assert_icommand(['iadmin','rmresc','newchild'])
 
     def update_specific_replica_for_data_objs_in_repl_hier(self, name_pair_list, repl_num=0):
         # determine which resource has replica 0
@@ -4348,32 +4321,6 @@ OUTPUT ruleExecOut
             f.write('i'*filesize)
         _, _, rc = self.admin.assert_icommand(['ifsck', '-KrR', 'demoResc;unix1Resc', vault_path], 'STDOUT_SINGLELINE', ['CORRUPTION', filename, 'checksum'])
         self.assertNotEqual(rc, 0, 'ifsck should have non-zero error code on checksum mismatch')
-        os.unlink(filename)
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, 'Reads server log')
-    def test_rebalance_logging_replica_update__3463(self):
-        filename = 'test_rebalance_logging_replica_update__3463'
-        file_size = 400
-        lib.make_file(filename, file_size)
-        self.admin.assert_icommand(['iput', filename])
-        self.update_specific_replica_for_data_objs_in_repl_hier([(filename, filename)])
-        initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
-        self.admin.assert_icommand(['iadmin', 'modresc', 'demoResc', 'rebalance'])
-        data_id = session.get_data_id(self.admin, self.admin.session_collection, filename)
-        self.assertEquals(2, lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'updating out-of-date replica for data id [{0}]'.format(str(data_id)), start_index=initial_log_size))
-        os.unlink(filename)
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, 'Reads server log')
-    def test_rebalance_logging_replica_creation__3463(self):
-        filename = 'test_rebalance_logging_replica_creation__3463'
-        file_size = 400
-        lib.make_file(filename, file_size)
-        self.admin.assert_icommand(['iput', filename])
-        self.admin.assert_icommand(['itrim', '-S', 'demoResc', '-N1', filename], 'STDOUT_SINGLELINE', 'Number of files trimmed = 1.')
-        initial_log_size = lib.get_file_size_by_path(IrodsConfig().server_log_path)
-        self.admin.assert_icommand(['iadmin', 'modresc', 'demoResc', 'rebalance'])
-        data_id = session.get_data_id(self.admin, self.admin.session_collection, filename)
-        self.assertEquals(2, lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'creating new replica for data id [{0}]'.format(str(data_id)), start_index=initial_log_size))
         os.unlink(filename)
 
     def test_rebalance_batching_replica_creation__3570(self):
@@ -4445,8 +4392,13 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand(['irepl', '-R', 'demoResc', filename])
 
             self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
-            self.assertTrue(0 == lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'rcDataCopy failed', start_index=initial_log_size))
-            self.assertTrue(0 == lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, 'SYS_BAD_FILE_DESCRIPTOR', start_index=initial_log_size))
+            for msg in ['rcDataCopy failed', 'SYS_BAD_FILE_DESCRIPTOR']:
+                lib.delayAssert(
+                    lambda: lib.log_message_occurrences_equals_count(
+                        msg=msg,
+                        count=0,
+                        server_log_path=IrodsConfig().server_log_path,
+                        start_index=initial_log_size))
         finally:
             self.admin.assert_icommand(['irm', '-f', filename])
             os.unlink(filename)
@@ -4570,13 +4522,12 @@ class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittes
             expected_message = self.failure_message
 
         irods_config = IrodsConfig()
-        fail_message_count = lib.count_occurrences_of_string_in_log(
-                                  irods_config.server_log_path,
-                                  expected_message,
-                                  start_index=self.log_message_starting_location)
-        self.assertTrue(fail_message_count == expected_count,
-                        msg='counted:[{0}]; expected:[{1}]'.format(
-                            str(fail_message_count), str(expected_count)))
+        lib.delayAssert(
+            lambda: lib.log_message_occurrences_equals_count(
+                msg=expected_message,
+                count=expected_count,
+                server_log_path=IrodsConfig().server_log_path,
+                start_index=self.log_message_starting_location))
         self.log_message_starting_location = lib.get_file_size_by_path(irods_config.server_log_path)
 
     # Generate a context string for replication resource
@@ -4900,7 +4851,7 @@ class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittes
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)
+        self.admin.assert_icommand("irepl -a " + filename)
 
         # should have dirty copies
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])

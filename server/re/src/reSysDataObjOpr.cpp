@@ -100,6 +100,7 @@ msiSetDefaultResc( msParam_t *xdefaultRescList, msParam_t *xoptionStr, ruleExecI
  * \deprecated Since 4.0, use a resource composition of a similar type.
  *
  **/
+[[deprecated("msiSetRescSortScheme is no longer supported, please use a resource composition of a similar type")]]
 int
 msiSetRescSortScheme( msParam_t*, ruleExecInfo_t* ) {
     rodsLog( LOG_ERROR, "msiSetRescSortScheme is no longer supported, please use a resource composition of a similar type" );
@@ -383,6 +384,8 @@ msiSortDataObj( msParam_t *xsortScheme, ruleExecInfo_t *rei ) {
  *
  * \brief  This microservice performs a checksum on the uploaded or copied data object.
  *
+ * \deprecated Since 4.2.8, use msiDataObjChksum instead.
+ *
  * \module core
  *
  * \since pre-2.1
@@ -407,34 +410,12 @@ msiSortDataObj( msParam_t *xsortScheme, ruleExecInfo_t *rei ) {
  * \post none
  * \sa none
  **/
+[[deprecated("msiSysChksumDataObj is no longer supported, use msiDataObjChksum instead")]]
 int
 msiSysChksumDataObj( ruleExecInfo_t *rei ) {
-    dataObjInfo_t *dataObjInfoHead;
-    char *chksumStr = NULL;
-
-    RE_TEST_MACRO( "    Calling msiSysChksumDataObj" )
-
-    rei->status = 0;
-
-    /* don't cache replicate or copy operation */
-
-    dataObjInfoHead = rei->doi;
-
-    if ( dataObjInfoHead == NULL ) {
-        return 0;
-    }
-
-    if ( strlen( dataObjInfoHead->chksum ) == 0 ) {
-        /* not already checksumed */
-        rei->status = dataObjChksumAndReg( rei->rsComm, dataObjInfoHead,
-                                           &chksumStr );
-        if ( chksumStr != NULL ) {
-            rstrcpy( dataObjInfoHead->chksum, chksumStr, NAME_LEN );
-            free( chksumStr );
-        }
-    }
-
-    return 0;
+    rodsLog(LOG_ERROR,
+        "msiSysChksumDataObj is no longer supported, use msiDataObjChksum instead");
+    return SYS_NOT_SUPPORTED;
 }
 
 /**
@@ -615,85 +596,16 @@ msiStageDataObj( msParam_t *xcacheResc, ruleExecInfo_t *rei ) {
 /**
  * \fn msiSysReplDataObj (msParam_t *xcacheResc, msParam_t *xflag, ruleExecInfo_t *rei)
  *
- * \brief  This microservice replicates a data object. It can be used to replicate
- *  a copy of the file just uploaded or copied data object to the specified
- *  replResc.
+ * \brief  This microservice replicates a data object.
  *
- * \module core
+ * \deprecated Since 4.2.7, use msiDataObjRepl instead.
  *
- * \since pre-2.1
- *
- * \author Mike Wan
- *
- * \note The allFlag is only meaningful if the replResc is a resource group.
- *  In this case, setting allFlag to "all" means a copy will be made in all the
- *  resources in the resource group. A "null" input means a single copy will be made in
- *  one of the resources in the resource group.
- *
- * \usage See clients/icommands/test/rules/
- *
- *
- * \param[in] xcacheResc -
- * \param[in] xflag -
- * \param[in,out] rei - The RuleExecInfo structure that is automatically
- *    handled by the rule engine. The user does not include rei as a
- *    parameter in the rule invocation.
- *
- * \DolVarDependence - rei->doi, rei->doinp->openFlags
- * \DolVarModified - rei->doi (new replica queued on top)
- * \iCatAttrDependence none
- * \iCatAttrModified none
- * \sideeffect none
- *
- * \return integer
- * \retval 0 on success
- * \pre none
- * \post none
- * \sa none
  **/
+[[deprecated("msiSysReplDataObj is no longer supported, use msiDataObjRepl instead")]]
 int
-msiSysReplDataObj( msParam_t *xcacheResc, msParam_t *xflag,
-                   ruleExecInfo_t *rei ) {
-//    int writeFlag;
-    dataObjInfo_t *dataObjInfoHead;
-    char *cacheResc;
-    char *flag = NULL;
-
-    cacheResc = ( char * ) xcacheResc->inOutStruct;
-    if ( xflag != NULL && xflag->inOutStruct != NULL ) {
-        flag = ( char * ) xflag->inOutStruct;
-    }
-
-    RE_TEST_MACRO( "    Calling msiSysReplDataObj" )
-
-    rei->status = 0;
-
-    if ( cacheResc == NULL || strcmp( cacheResc, "null" ) == 0 ||
-            strlen( cacheResc ) == 0 ) {
-        return rei->status;
-    }
-
-    dataObjInfoHead = rei->doi;
-
-    if ( dataObjInfoHead == NULL ) {
-        return rei->status;
-    }
-
-//    writeFlag = getWriteFlag( rei->doinp->openFlags );
-
-//    if ( requeDataObjInfoByResc( &dataObjInfoHead, cacheResc, writeFlag, 1 )
-//            >= 0 ) {
-//        /* we have a good copy on cache */
-//        rei->status = 1;
-//        return ( rei->status );
-//    }
-
-    rei->status = rsReplAndRequeDataObjInfo( rei->rsComm, &dataObjInfoHead,
-                  cacheResc, flag );
-    if ( rei->status >= 0 ) {
-        rei->doi = dataObjInfoHead;
-    }
-    return rei->status;
+msiSysReplDataObj(msParam_t *xcacheResc, msParam_t *xflag, ruleExecInfo_t *rei) {
+    rodsLog(LOG_ERROR, "%s is no longer supported, use msiDataObjRepl instead.", __FUNCTION__);
+    return SYS_NOT_SUPPORTED;
 }
 
 /**
@@ -942,35 +854,15 @@ msiOprDisallowed( ruleExecInfo_t *rei ) {
  *
  * \brief  By default, the system allows one copy per resource. This microservice sets the number of copies per resource to unlimited.
  *
- * \module core
+ * \deprecated Since 4.2.7, only one replica is allowed on a given resource.
  *
- * \since pre-2.1
- *
- * \author Mike Wan
- *
- * \usage See clients/icommands/test/rules/
- *
- * \param[in,out] rei - The RuleExecInfo structure that is automatically
- *    handled by the rule engine. The user does not include rei as a
- *    parameter in the rule invocation.
- *
- * \DolVarDependence none
- * \DolVarModified - rei->statusStr
- * \iCatAttrDependence none
- * \iCatAttrModified none
- * \sideeffect none
- *
- * \return integer
- * \retval 0 on success
- * \pre none
- * \post none
- * \sa none
  **/
 int
 msiSetMultiReplPerResc( ruleExecInfo_t *rei ) {
-    rstrcpy( rei->statusStr, MULTI_COPIES_PER_RESC, MAX_NAME_LEN );
-    return 0;
+    rodsLog( LOG_ERROR, "msiSetMultiReplPerResc is no longer supported as only one replica is allowed on a given resource" );
+    return SYS_NOT_SUPPORTED;
 }
+
 
 /**
  * \fn msiNoChkFilePathPerm (ruleExecInfo_t *rei)

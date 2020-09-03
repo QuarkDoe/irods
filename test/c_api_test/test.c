@@ -14,7 +14,7 @@
 #include "dataObjChksum.h"
 #include "dataObjClose.h"
 
-#if IRODS_VERSION_INTEGER != 4002007
+#if IRODS_VERSION_INTEGER != 4002008
     #error "IRODS_VERSION_INTEGER needs attention"
 #endif
 
@@ -27,7 +27,7 @@ int main () {
     }
     rErrMsg_t errMsg;
 
-    init_client_api_table();
+    load_client_api_plugins();
 
     rcComm_t* conn = rcConnect( myEnv.rodsHost, myEnv.rodsPort, myEnv.rodsUserName, myEnv.rodsZone, 1, &errMsg );
 
