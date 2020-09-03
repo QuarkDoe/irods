@@ -4,11 +4,12 @@
 /* rcMisc.c - misc client routines
  */
 #ifndef windows_platform
-#include <sys/time.h>
-#include <sys/wait.h>
+    #include <sys/time.h>
+    #include <sys/wait.h>
 #else
-#include "Unix2Nt.hpp"
+    #include "Unix2Nt.hpp"
 #endif
+
 #include "rcMisc.h"
 #include "apiHeaderAll.h"
 #include "modDataObjMeta.h"
@@ -16,16 +17,20 @@
 #include "rodsGenQueryNames.h"
 #include "rodsType.h"
 #include "dataObjPut.h"
+#include "rodsErrorTable.h"
 
 #include "bulkDataObjPut.h"
 #include "putUtil.h"
 #include "sockComm.h"
+
+#include "json.hpp"
 
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <map>
 #include <random>
 #include <openssl/md5.h>
@@ -38,6 +43,7 @@
 #include "irods_log.hpp"
 #include "irods_random.hpp"
 #include "irods_path_recursion.hpp"
+#include "irods_get_full_path_for_config_file.hpp"
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -556,10 +562,9 @@ freeDataObjInfo( dataObjInfo_t *dataObjInfo ) {
 
 int
 freeAllDataObjInfo( dataObjInfo_t *dataObjInfoHead ) {
-    dataObjInfo_t *tmpDataObjInfo, *nextDataObjInfo;
-
-    tmpDataObjInfo = dataObjInfoHead;
-    while ( tmpDataObjInfo != NULL ) {
+    dataObjInfo_t* nextDataObjInfo{};
+    dataObjInfo_t* tmpDataObjInfo = dataObjInfoHead;
+    while (tmpDataObjInfo) {
         nextDataObjInfo = tmpDataObjInfo->next;
         freeDataObjInfo( tmpDataObjInfo );
         tmpDataObjInfo = nextDataObjInfo;
@@ -787,6 +792,7 @@ addKeyVal( keyValPair_t *condInput, const char *keyWord, const char *value ) {
     if ( condInput == NULL ) {
         return SYS_INTERNAL_NULL_INPUT_ERR;
     }
+
     if ( condInput->keyWord == NULL || condInput->value == NULL ) {
         condInput->len = 0;
     }
@@ -798,12 +804,12 @@ addKeyVal( keyValPair_t *condInput, const char *keyWord, const char *value ) {
             free( condInput->value[i] );
             condInput->keyWord[i] = strdup( keyWord );
             condInput->value[i] = value ? strdup( value ) : NULL;
-            return 0;
+            return i;
         }
         else if ( strcmp( keyWord, condInput->keyWord[i] ) == 0 ) {
             free( condInput->value[i] );
             condInput->value[i] = value ? strdup( value ) : NULL;
-            return 0;
+            return i;
         }
     }
 
@@ -820,7 +826,7 @@ addKeyVal( keyValPair_t *condInput, const char *keyWord, const char *value ) {
     condInput->value[condInput->len] = value ? strdup( value ) : NULL;
     condInput->len++;
 
-    return 0;
+    return condInput->len - 1;
 }
 
 
@@ -4447,12 +4453,69 @@ static std::string stringify_addrinfo_hints(const struct addrinfo *_hints) {
     return ret;
 }
 
+auto resolve_hostname_from_hosts_config(const std::string& name_to_resolve) -> std::string
+{
+    using json = nlohmann::json;
+    static json hosts_config{};
+
+    std::string resolved_name{name_to_resolve};
+
+    try {
+        if(hosts_config.empty()) {
+            std::string cfg_file;
+            irods::error err = irods::get_full_path_for_config_file(HOST_CONFIG_FILE, cfg_file);
+            if(!err.ok()) {
+                return name_to_resolve;
+            }
+
+            hosts_config = json::parse(std::ifstream{cfg_file});
+        }
+
+        for(const auto entry : hosts_config.at("host_entries")) {
+            const auto addresses = entry.at("addresses");
+            const std::string target_name{addresses.at(0).at("address")};
+
+            for( json::size_type i = 1; i < addresses.size(); ++i) {
+                const auto alias{addresses.at(i).at("address")};
+                if(alias == name_to_resolve) {
+                    resolved_name = target_name;
+                    break;
+                }
+            } // for alias
+        } // for entry
+    }
+    catch(const json::exception& e) {
+        rodsLog(
+            LOG_ERROR,
+            "%s :: caught exception: ",
+            __FUNCTION__,
+            e.what());
+    }
+    catch(...) {
+        rodsLog(
+            LOG_ERROR,
+            "%s :: caught unknown exception",
+            __FUNCTION__);
+    }
+
+    return resolved_name;
+
+} // resolve_hostname_from_hosts_config
+
 int
 getaddrinfo_with_retry(const char *_node, const char *_service, const struct addrinfo *_hints, struct addrinfo **_res) {
+    // "_node" is the hostname to resolve.
+    if (!_node || std::strlen(_node) == 0) {
+        rodsLog(LOG_ERROR, "getaddrinfo_with_retry: hostname is null or empty");
+        return USER_RODS_HOSTNAME_ERR;
+    }
+
+    const auto hostname = resolve_hostname_from_hosts_config(_node);
+
     *_res = 0;
     const int max_retry = 300;
     for (int i=0; i<max_retry; ++i) {
-        const int ret_getaddrinfo = getaddrinfo(_node, _service, _hints, _res);
+        const int ret_getaddrinfo = getaddrinfo(hostname.c_str(), _service, _hints, _res);
         if (   ret_getaddrinfo == EAI_AGAIN
             || ret_getaddrinfo == EAI_NONAME
             || ret_getaddrinfo == EAI_NODATA) { // retryable errors
@@ -4471,19 +4534,19 @@ getaddrinfo_with_retry(const char *_node, const char *_service, const struct add
             if (ret_getaddrinfo == EAI_SYSTEM) {
                 const int errno_copy = errno;
                 std::string hint_str = stringify_addrinfo_hints(_hints);
-                rodsLog(LOG_ERROR, "getaddrinfo_with_retry: getaddrinfo non-recoverable system error [%d] [%s] [%d] [%s] [%s]", ret_getaddrinfo, gai_strerror(ret_getaddrinfo), errno_copy, _node, hint_str.c_str());
+                rodsLog(LOG_ERROR, "getaddrinfo_with_retry: getaddrinfo non-recoverable system error [%d] [%s] [%d] [%s] [%s]", ret_getaddrinfo, gai_strerror(ret_getaddrinfo), errno_copy, hostname.c_str(), hint_str.c_str());
             } else {
                 std::string hint_str = stringify_addrinfo_hints(_hints);
-                rodsLog(LOG_ERROR, "getaddrinfo_with_retry: getaddrinfo non-recoverable error [%d] [%s] [%s] [%s]", ret_getaddrinfo, gai_strerror(ret_getaddrinfo), _node, hint_str.c_str());
+                rodsLog(LOG_ERROR, "getaddrinfo_with_retry: getaddrinfo non-recoverable error [%d] [%s] [%s] [%s]", ret_getaddrinfo, gai_strerror(ret_getaddrinfo), hostname.c_str(), hint_str.c_str());
             }
             return USER_RODS_HOSTNAME_ERR;
         } else {
             return 0;
         }
-        rodsLog(LOG_DEBUG, "getaddrinfo_with_retry retrying getaddrinfo. retry count [%d] hostname [%s]", i, _node);
+        rodsLog(LOG_DEBUG, "getaddrinfo_with_retry retrying getaddrinfo. retry count [%d] hostname [%s]", i, hostname.c_str());
     }
     std::string hint_str = stringify_addrinfo_hints(_hints);
-    rodsLog(LOG_ERROR, "getaddrinfo_with_retry address resolution timeout [%s] [%s]", _node, hint_str.c_str());
+    rodsLog(LOG_ERROR, "getaddrinfo_with_retry address resolution timeout [%s] [%s]", hostname.c_str(), hint_str.c_str());
     return USER_RODS_HOSTNAME_ERR;
 }
 

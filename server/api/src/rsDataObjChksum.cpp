@@ -12,11 +12,18 @@
 #include "rsFileStat.hpp"
 #include "boost/lexical_cast.hpp"
 #include "rsGenQuery.hpp"
+#include "irods_logger.hpp"
+
+#define IRODS_QUERY_ENABLE_SERVER_SIDE_API
+#include "irods_query.hpp"
 
 // =-=-=-=-=-=-=-
 #include "irods_resource_backport.hpp"
 #include "irods_resource_redirect.hpp"
 
+#include <optional>
+
+using logger = irods::experimental::log;
 
 namespace {
     // assumes zone redirection has already occurred, and that the function is being called on a server in the zone the object belongs to
@@ -34,34 +41,24 @@ namespace {
         }
         const rodsLong_t size_in_vault = fileStatOut->st_size;
         free(fileStatOut);
-        genQueryInp_t genQueryInp;
-        memset(&genQueryInp, 0, sizeof(genQueryInp));
-        addInxIval(&genQueryInp.selectInp, COL_DATA_SIZE, 1);
-        addInxVal(&genQueryInp.sqlCondInp, COL_D_DATA_PATH, (boost::format(" = '%s'") % dataObjInfo->filePath).str().c_str());
-        genQueryInp.maxRows = 1;
-        genQueryOut_t *genQueryOut = nullptr;
-        const int status_rsGenQuery = rsGenQuery(rsComm, &genQueryInp, &genQueryOut);
-        clearGenQueryInp(&genQueryInp);
-        if (status_rsGenQuery < 0) {
-            if (status_rsGenQuery == CAT_NO_ROWS_FOUND) {
-                freeGenQueryOut(&genQueryOut);
+        std::optional<rodsLong_t> size_in_database {};
+        auto select_and_condition { fmt::format("select DATA_SIZE where DATA_PATH = '{}'", dataObjInfo->filePath) };
+        for (auto&& row : irods::query{rsComm, select_and_condition}) {
+            try {
+                size_in_database = boost::lexical_cast<rodsLong_t>(row[0]);
+            } catch (const boost::bad_lexical_cast&) {
+                logger::api::error("_rsFileChksum: lexical_cast of [{}] for [{}] [{}] [{}] failed",
+                    row[0],
+                    dataObjInfo->filePath,
+                    dataObjInfo->rescHier,
+                    dataObjInfo->objPath);
+                return INVALID_LEXICAL_CAST;
             }
-            rodsLog(LOG_ERROR, "_rsFileChksum: rsGenQuery of [%s] [%s] [%s] failed with [%d]", dataObjInfo->filePath, dataObjInfo->rescHier, dataObjInfo->objPath, status_rsGenQuery);
-            return status_rsGenQuery;
         }
-
-        rodsLong_t size_in_database;
-        try {
-            size_in_database = boost::lexical_cast<rodsLong_t>(genQueryOut->sqlResult[0].value);
-        } catch (const boost::bad_lexical_cast&) {
-            freeGenQueryOut(&genQueryOut);
-            rodsLog(LOG_ERROR, "_rsFileChksum: lexical_cast of [%s] for [%s] [%s] [%s] failed", genQueryOut->sqlResult[0].value, dataObjInfo->filePath, dataObjInfo->rescHier, dataObjInfo->objPath);
-            return INVALID_LEXICAL_CAST;
-        }
-        freeGenQueryOut(&genQueryOut);
-        if (size_in_database != size_in_vault) {
+        if (!size_in_database.has_value()) { return CAT_NO_ROWS_FOUND; }
+        if (size_in_database.value() != size_in_vault) {
             rodsLog(LOG_ERROR, "_rsFileChksum: file size mismatch. resource hierarchy [%s] vault path [%s] size [%ji] object path [%s] size [%ji]", dataObjInfo->rescHier, dataObjInfo->filePath,
-                    static_cast<intmax_t>(size_in_vault), dataObjInfo->objPath, static_cast<intmax_t>(size_in_database));
+                    static_cast<intmax_t>(size_in_vault), dataObjInfo->objPath, static_cast<intmax_t>(size_in_database.value()));
             return USER_FILE_SIZE_MISMATCH;
         }
         return 0;
@@ -93,26 +90,17 @@ rsDataObjChksum( rsComm_t *rsComm, dataObjInp_t *dataObjChksumInp,
         // =-=-=-=-=-=-=-
         // determine the resource hierarchy if one is not provided
         if ( getValByKey( &dataObjChksumInp->condInput, RESC_HIER_STR_KW ) == NULL ) {
-            std::string       hier;
-            irods::error ret = irods::resolve_resource_hierarchy( irods::OPEN_OPERATION,
-                               rsComm, dataObjChksumInp, hier );
-            if ( !ret.ok() ) {
-                std::stringstream msg;
-                msg << "failed in irods::resolve_resource_hierarchy for [";
-                msg << dataObjChksumInp->objPath << "]";
-                irods::log( PASSMSG( msg.str(), ret ) );
-                return ret.code();
+            try {
+                auto result = irods::resolve_resource_hierarchy(irods::OPEN_OPERATION, rsComm, *dataObjChksumInp);
+                const auto hier = std::get<std::string>(result);
+                addKeyVal( &dataObjChksumInp->condInput, RESC_HIER_STR_KW, hier.c_str() );
+            }   
+            catch (const irods::exception& e ) { 
+                irods::log(e);
+                return e.code();
             }
-
-            // =-=-=-=-=-=-=-
-            // we resolved the redirect and have a host, set the hier str for subsequent
-            // api calls, etc.
-            addKeyVal( &dataObjChksumInp->condInput, RESC_HIER_STR_KW, hier.c_str() );
-
         } // if keyword
-
-        status = _rsDataObjChksum( rsComm, dataObjChksumInp, outChksum,
-                                   &dataObjInfoHead );
+        status = _rsDataObjChksum(rsComm, dataObjChksumInp, outChksum, &dataObjInfoHead);
     }
     freeAllDataObjInfo( dataObjInfoHead );
     rodsLog( LOG_DEBUG, "rsDataObjChksum - returning status %d", status );
@@ -265,15 +253,12 @@ _rsDataObjChksum( rsComm_t *rsComm, dataObjInp_t *dataObjInp,
 int
 dataObjChksumAndRegInfo( rsComm_t *rsComm, dataObjInfo_t *dataObjInfo,
                          char **outChksumStr ) {
-    int              status;
-    keyValPair_t     regParam;
-    modDataObjMeta_t modDataObjMetaInp;
 
-    status = _dataObjChksum( rsComm, dataObjInfo, outChksumStr );
+    int status = _dataObjChksum( rsComm, dataObjInfo, outChksumStr );
 
     if ( status < 0 ) {
-        rodsLog( LOG_ERROR, "dataObjChksumAndRegInfo: _dataObjChksum error for %s, status = %d",
-                 dataObjInfo->objPath, status );
+        rodsLog( LOG_ERROR, "%s: _dataObjChksum error for %s, status = %d",
+                 __FUNCTION__, dataObjInfo->objPath, status );
         return status;
     }
 
@@ -281,7 +266,7 @@ dataObjChksumAndRegInfo( rsComm_t *rsComm, dataObjInfo_t *dataObjInfo,
         return status;
     }
 
-    memset( &regParam, 0, sizeof( regParam ) );
+    keyValPair_t regParam{};
     addKeyVal( &regParam, CHKSUM_KW, *outChksumStr );
     // set pdmo flag so that chksum doesn't trigger file operations
     addKeyVal( &regParam, IN_PDMO_KW, "" );
@@ -292,10 +277,10 @@ dataObjChksumAndRegInfo( rsComm_t *rsComm, dataObjInfo_t *dataObjInfo,
         }
         addKeyVal( &regParam, ADMIN_KW, "" );
     }
+    modDataObjMeta_t modDataObjMetaInp{};
     modDataObjMetaInp.dataObjInfo = dataObjInfo;
     modDataObjMetaInp.regParam = &regParam;
     status = rsModDataObjMeta( rsComm, &modDataObjMetaInp );
-    rodsLog( LOG_DEBUG, "dataObjChksumAndRegInfo - rsModDataObjMeta status %d", status );
     clearKeyVal( &regParam );
 
     return status;

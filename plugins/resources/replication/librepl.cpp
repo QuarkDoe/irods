@@ -10,6 +10,7 @@
 #include "rodsLog.h"
 
 // =-=-=-=-=-=-=-
+#include "irods_at_scope_exit.hpp"
 #include "irods_resource_plugin.hpp"
 #include "irods_file_object.hpp"
 #include "irods_collection_object.hpp"
@@ -23,7 +24,6 @@
 #include "irods_object_oper.hpp"
 #include "irods_replicator.hpp"
 #include "irods_create_write_replicator.hpp"
-#include "irods_hierarchy_parser.hpp"
 #include "irods_resource_redirect.hpp"
 #include "irods_repl_rebalance.hpp"
 #include "irods_kvp_string_parser.hpp"
@@ -77,7 +77,6 @@
 #include <string.h>
 
 
-const std::string NUM_REPL_KW( "num_repl" );
 const std::string READ_KW( "read" );
 const std::string READ_RANDOM_POLICY( "random" );
 
@@ -377,63 +376,6 @@ irods::error repl_file_unregistered(
     return result;
 }
 
-irods::error proc_child_list_for_create_policy(irods::plugin_context& _ctx) {
-    size_t num_repl{};
-    irods::error ret = _ctx.prop_map().get<size_t>(NUM_REPL_KW, num_repl);
-    if(!ret.ok()) {
-        return SUCCESS();
-    }
-
-    child_list_t new_list{};
-    if(num_repl <= 1) {
-        ret = _ctx.prop_map().set<child_list_t>(CHILD_LIST_PROP, new_list);
-        if(!ret.ok()) {
-            return PASS(ret);
-        }
-        return SUCCESS();
-    }
-
-    child_list_t child_list{};
-    ret = _ctx.prop_map().get<child_list_t>(CHILD_LIST_PROP, child_list);
-    if(!ret.ok()) {
-        return PASS(ret);
-    }
-
-    // decrement num_repl by 1 to count first replica
-    num_repl--;
-
-    if(num_repl < child_list.size()) {
-        bool pick_done{};
-        std::vector<size_t> picked_indicies{};
-        while(!pick_done) {
-             size_t rand_index{irods::getRandom<size_t>() % child_list.size()};
-             if(std::find(
-                 picked_indicies.begin(),
-                 picked_indicies.end(),
-                 rand_index) == picked_indicies.end()) {
-                 new_list.push_back(child_list[rand_index]);
-                 picked_indicies.push_back(rand_index);
-                 if(picked_indicies.size() >= num_repl) {
-                     pick_done = true;
-                 }
-             }
-        }
-
-        // if we have an empty new_list, simply keep the old one
-        if(0 == new_list.size()) {
-            return SUCCESS();
-        }
-
-        ret = _ctx.prop_map().set<child_list_t>(CHILD_LIST_PROP, new_list);
-        if(!ret.ok()) {
-            return PASS(ret);
-        }
-    }
-
-    return SUCCESS();
-
-} // proc_child_list_for_create_policy
-
 irods::error create_replication_list(
     irods::plugin_context& _ctx,
     const std::string& operation) {
@@ -460,7 +402,6 @@ irods::error create_replication_list(
     irods::resource_child_map* cmap_ref;
     _ctx.prop_map().get<irods::resource_child_map*>(irods::RESC_CHILD_MAP_PROP, cmap_ref);
     if (cmap_ref->empty()) {
-        rodsLog(LOG_NOTICE, "[%s] - child map empty - nothing to do", __FUNCTION__);
         return SUCCESS();
     }
 
@@ -493,9 +434,9 @@ irods::error create_replication_list(
         ret = child->call<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
                   _ctx.comm(), irods::RESOURCE_OP_RESOLVE_RESC_HIER, _ctx.fco(), &operation, &host_name, &parser, &out_vote );
         if (!ret.ok() && CHILD_NOT_FOUND != ret.code()) {
-            return PASSMSG((boost::format(
-                            "[%s] - Failed calling redirect on the child \"%s\".") %
-                            __FUNCTION__ % entry.first).str(), ret);
+            rodsLog(LOG_WARNING,
+                "[%s] - failed resolving hierarchy for [%s]",
+                __FUNCTION__, entry.first.c_str());
         }
         else if (out_vote > 0.0) {
             repl_vector.push_back(parser);
@@ -506,14 +447,6 @@ irods::error create_replication_list(
     ret = _ctx.prop_map().set<child_list_t>(CHILD_LIST_PROP, repl_vector);
     if (!ret.ok()) {
         return PASS(ret);
-    }
-
-    // Determine which children of the child list will receive replicas
-    if (irods::CREATE_OPERATION == operation) {
-        ret = proc_child_list_for_create_policy(_ctx);
-        if (!ret.ok()) {
-            return PASS(ret);
-        }
     }
 
     return SUCCESS();
@@ -554,6 +487,19 @@ irods::error repl_file_modified(irods::plugin_context& _ctx) {
     if (sub_parser.resc_in_hier(name)) {
         return SUCCESS();
     }
+
+    // The selected child resource is not added to the child list property
+    // Only replicate if the selected child resource is not in the list
+    // TODO: Replace with a query
+    child_list_t child_list{};
+    ret = _ctx.prop_map().get<child_list_t>(CHILD_LIST_PROP, child_list);
+    if (ret.ok()) {
+        return SUCCESS();
+    }
+
+    const irods::at_scope_exit clear_child_list{[&_ctx]() {
+        _ctx.prop_map().erase(CHILD_LIST_PROP);
+    }};
 
     // Get operation type based on reason for opening the file
     const auto open_type_str{getValByKey(&file_obj->cond_input(), OPEN_TYPE_KW)};
@@ -1378,32 +1324,37 @@ irods::error add_self_to_hierarchy(
     return SUCCESS();
 } // add_self_to_hierarchy
 
-/// @brief Loop through the children and call redirect on each one to populate the hierarchy vector
-irods::error resolve_children(
-    irods::plugin_context& _ctx,
-    const std::string*             _operation,
-    const std::string*             _curr_host,
-    irods::hierarchy_parser&       _parser,
-    redirect_map_t&                _redirect_map ) {
-
+/// @brief Loop through the children and call resolve hierarchy on each one to populate the hierarchy vector
+std::pair<redirect_map_t, irods::error> resolve_children(
+    irods::plugin_context& ctx,
+    const std::string& operation,
+    const std::string& local_hostname,
+    irods::hierarchy_parser& out_parser)
+{
+    redirect_map_t map;
     irods::resource_child_map* cmap_ref;
-    _ctx.prop_map().get<irods::resource_child_map*>(irods::RESC_CHILD_MAP_PROP, cmap_ref);
+    ctx.prop_map().get<irods::resource_child_map*>(irods::RESC_CHILD_MAP_PROP, cmap_ref);
+    if (cmap_ref->empty()) {
+        return {map, ERROR(CHILD_NOT_FOUND, "No children found for resource")};
+    }
 
+    irods::error last_err = SUCCESS();
     float out_vote{};
     for (auto& entry : *cmap_ref) {
-        auto parser{_parser};
+        auto parser{out_parser};
         const auto ret{entry.second.second->call<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
-                        _ctx.comm(), irods::RESOURCE_OP_RESOLVE_RESC_HIER, _ctx.fco(), _operation, _curr_host, &parser, &out_vote)};
+                        ctx.comm(), irods::RESOURCE_OP_RESOLVE_RESC_HIER, ctx.fco(), &operation, &local_hostname, &parser, &out_vote)};
         if (!ret.ok() && CHILD_NOT_FOUND != ret.code()) {
-            return PASSMSG((boost::format(
-                            "[%s] - Failed calling redirect on the child \"%s\".") %
-                            __FUNCTION__ % entry.first).str(), ret);
+            rodsLog(LOG_WARNING,
+                "[%s] - failed resolving hierarchy for [%s]",
+                __FUNCTION__, entry.first.c_str());
+            last_err = ret;
         }
         else {
-            _redirect_map.insert(std::pair<float, irods::hierarchy_parser>(out_vote, parser));
+            map.insert({out_vote, parser});
         }
     }
-    return SUCCESS();
+    return {map, last_err};
 } // resolve_children
 
 /// @brief honor the read context string keyword if present
@@ -1478,17 +1429,27 @@ irods::error repl_file_resolve_hierarchy(
                       __FUNCTION__).str().c_str() ); 
     }
 
+    // If child list property exists, use previously selected parser for the vote
+    irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object >( ( _ctx.fco() ) );
+    const auto hier_str{getValByKey(&file_obj->cond_input(), RESC_HIER_STR_KW)};
+    if (hier_str) {
+        irods::hierarchy_parser selected_parser{};
+        selected_parser.set_string(hier_str);
+        *_out_vote = 1.0;
+        *_inout_parser = selected_parser;
+        return SUCCESS();
+    }
+
     // add ourselves to the hierarchy parser
-    auto ret{add_self_to_hierarchy(_ctx, *_inout_parser)};
+    auto ret = add_self_to_hierarchy(_ctx, *_inout_parser);
     if (!ret.ok()) {
         return PASS(ret);
     }
 
     // Resolve each one of our children and put into redirect_map
-    redirect_map_t redirect_map;
-    ret = resolve_children(_ctx, _operation, _curr_host, *_inout_parser, redirect_map);
-    if (!ret.ok()) {
-        return PASS(ret);
+    auto [redirect_map, last_err] = resolve_children(_ctx, *_operation, *_curr_host, *_inout_parser);
+    if (redirect_map.empty()) {
+        return last_err;
     }
 
     // Select a resolved hierarchy from redirect_map for the operation
@@ -1630,27 +1591,6 @@ class repl_resource : public irods::resource {
                     irods::log( PASS( ret ) );
                 }
 
-                if ( kvp_map.find( NUM_REPL_KW ) != kvp_map.end() ) {
-                    try {
-                        int num_repl = boost::lexical_cast< int >( kvp_map[ NUM_REPL_KW ] );
-                        if( num_repl <= 0 ) {
-                            irods::log( ERROR( SYS_INVALID_INPUT_PARAM,
-                                            boost::format( "%s:%d - [%s] is 0" ) %
-                                            __FUNCTION__ % __LINE__ %
-                                            NUM_REPL_KW.c_str() ) );
-                        }
-                        else {
-                            properties_.set< size_t >( NUM_REPL_KW, static_cast< size_t >( num_repl ) );
-                        }
-                    }
-                    catch ( const boost::bad_lexical_cast& ) {
-                        irods::log( ERROR( SYS_INVALID_INPUT_PARAM,
-                                        boost::format( "failed to cast [%s] to value [%s]" ) %
-                                        NUM_REPL_KW.c_str() %
-                                        kvp_map[ NUM_REPL_KW ] ) );
-                    }
-                }
-
                 auto retry_attempts = irods::DEFAULT_RETRY_ATTEMPTS;
                 if ( kvp_map.find( irods::RETRY_ATTEMPTS_KW ) != kvp_map.end() ) {
                     try {
@@ -1658,8 +1598,10 @@ class repl_resource : public irods::resource {
                         const int int_retry_attempts = boost::lexical_cast< int >( kvp_map[ irods::RETRY_ATTEMPTS_KW ] );
                         if ( int_retry_attempts < 0 ) {
                             irods::log( ERROR( SYS_INVALID_INPUT_PARAM,
-                                           boost::format( "%s:%d - [%s] is < 0; using default value [%d]" ) %
-                                           __FUNCTION__ % __LINE__ %
+                                           boost::format(
+                                           "[%s] - [%s] for resource [%s] is < 0; using default value [%d]" ) %
+                                           __FUNCTION__ %
+                                           _inst_name %
                                            irods::RETRY_ATTEMPTS_KW.c_str() %
                                            irods::DEFAULT_RETRY_ATTEMPTS ) );
                         }
@@ -1669,8 +1611,11 @@ class repl_resource : public irods::resource {
                     }
                     catch ( const boost::bad_lexical_cast& ) {
                         irods::log( ERROR( SYS_INVALID_INPUT_PARAM,
-                                        boost::format( "failed to cast [%s] to value [%s]; using default value [%d]" ) %
-                                        irods::RETRY_ATTEMPTS_KW.c_str() %
+                                        boost::format(
+                                        "[%s] - failed to cast [%s] for resource [%s] to value [%s]; using default value [%d]") %
+                                        __FUNCTION__ %
+                                        irods::RETRY_ATTEMPTS_KW %
+                                        _inst_name %
                                         kvp_map[ irods::RETRY_ATTEMPTS_KW ] %
                                         irods::DEFAULT_RETRY_ATTEMPTS ) );
                     }
@@ -1684,10 +1629,12 @@ class repl_resource : public irods::resource {
                         const int int_retry_delay = boost::lexical_cast< int >( kvp_map[ irods::RETRY_FIRST_DELAY_IN_SECONDS_KW ] );
                         if ( int_retry_delay <= 0 ) {
                             irods::log( ERROR( SYS_INVALID_INPUT_PARAM,
-                                            boost::format( "%s:%d - [%s] is <= 0; using default value [%d]" ) %
-                                            __FUNCTION__ % __LINE__ %
-                                            irods::RETRY_FIRST_DELAY_IN_SECONDS_KW.c_str() %
-                                            irods::DEFAULT_RETRY_FIRST_DELAY_IN_SECONDS ) );
+                                           boost::format(
+                                           "[%s] - [%s] for resource [%s] is <= 0; using default value [%d]" ) %
+                                           __FUNCTION__ %
+                                           _inst_name %
+                                           irods::RETRY_FIRST_DELAY_IN_SECONDS_KW.c_str() %
+                                           irods::DEFAULT_RETRY_FIRST_DELAY_IN_SECONDS ) );
                         }
                         else {
                             retry_delay_in_seconds = static_cast< decltype( retry_delay_in_seconds ) >( int_retry_delay );
@@ -1695,8 +1642,11 @@ class repl_resource : public irods::resource {
                     }
                     catch ( const boost::bad_lexical_cast& ) {
                         irods::log( ERROR( SYS_INVALID_INPUT_PARAM,
-                                        boost::format( "failed to cast [%s] to value [%s]; using default value [%d]" ) %
-                                        irods::RETRY_BACKOFF_MULTIPLIER_KW.c_str() %
+                                        boost::format(
+                                        "[%s] - failed to cast [%s] for resource [%s] to value [%s]; using default value [%d]") %
+                                        __FUNCTION__ %
+                                        irods::RETRY_FIRST_DELAY_IN_SECONDS_KW.c_str() %
+                                        _inst_name %
                                         kvp_map[ irods::RETRY_FIRST_DELAY_IN_SECONDS_KW ] %
                                         irods::DEFAULT_RETRY_FIRST_DELAY_IN_SECONDS ) );
                     }
@@ -1709,17 +1659,22 @@ class repl_resource : public irods::resource {
                         backoff_multiplier = boost::lexical_cast< decltype( backoff_multiplier ) >( kvp_map[ irods::RETRY_BACKOFF_MULTIPLIER_KW ] );
                         if ( backoff_multiplier < 1 ) {
                             irods::log( ERROR( SYS_INVALID_INPUT_PARAM,
-                                            boost::format( "%s:%d - [%s] is < 1; using default value [%f]" ) %
-                                            __FUNCTION__ % __LINE__ %
-                                            irods::RETRY_BACKOFF_MULTIPLIER_KW.c_str() %
-                                            irods::DEFAULT_RETRY_BACKOFF_MULTIPLIER ) );
+                                           boost::format(
+                                           "[%s] - [%s] for resource [%s] is < 1; using default value [%d]" ) %
+                                           __FUNCTION__ %
+                                           _inst_name %
+                                           irods::RETRY_BACKOFF_MULTIPLIER_KW.c_str() %
+                                           irods::DEFAULT_RETRY_BACKOFF_MULTIPLIER ) );
                             backoff_multiplier = irods::DEFAULT_RETRY_BACKOFF_MULTIPLIER;
                         }
                     }
                     catch ( const boost::bad_lexical_cast& ) {
                         irods::log( ERROR( SYS_INVALID_INPUT_PARAM,
-                                        boost::format( "failed to cast [%s] to value [%s]; using default value [%f]" ) %
+                                        boost::format(
+                                        "[%s] - failed to cast [%s] for resource [%s] to value [%s]; using default value [%d]") %
+                                        __FUNCTION__ %
                                         irods::RETRY_BACKOFF_MULTIPLIER_KW.c_str() %
+                                        _inst_name %
                                         kvp_map[ irods::RETRY_BACKOFF_MULTIPLIER_KW ] %
                                         irods::DEFAULT_RETRY_BACKOFF_MULTIPLIER ) );
                     }

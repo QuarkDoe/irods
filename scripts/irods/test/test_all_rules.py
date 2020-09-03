@@ -4,6 +4,8 @@ import socket
 import shutil
 import sys
 import getpass
+import tempfile
+import json
 
 if sys.version_info >= (2, 7):
     import unittest
@@ -11,6 +13,7 @@ else:
     import unittest2 as unittest
 
 from .. import lib
+from .. import test
 from ..configuration import IrodsConfig
 from ..controller import IrodsController
 from . import metaclass_unittest_test_case_generator
@@ -211,7 +214,6 @@ class Test_AllRules(resource_suite.ResourceBase, unittest.TestCase):
                 "rulemsiSetDataTypeFromExt",
                 "rulemsiSetDefaultResc",
                 "rulemsiSetGraftPathScheme",
-                "rulemsiSetMultiReplPerResc",
                 "rulemsiSetNoDirectRescInp",
                 "rulemsiSetNumThreads",
                 "rulemsiSetPublicUserOpr",
@@ -453,7 +455,7 @@ class Test_AllRules(resource_suite.ResourceBase, unittest.TestCase):
         assert os.path.isfile(bundlefile)
 
         # now try as a normal user (expect err msg)
-        self.user0.assert_icommand("irule -F " + os.path.join(rulesdir, rulefile), 'STDERR_SINGLELINE', "SYS_NO_API_PRIV")
+        self.user0.assert_icommand("irule -r irods_rule_engine_plugin-irods_rule_language-instance -F " + os.path.join(rulesdir, rulefile), 'STDERR_SINGLELINE', "SYS_NO_API_PRIV")
 
         # cleanup
         self.rods_session.run_icommand(['irm', '-rf', bundle_path])
@@ -801,3 +803,213 @@ OUTPUT ruleExecOut
                 os.unlink(known_file_name)
             if os.path.exists(tar_file_name):
                 os.unlink(tar_file_name)
+
+    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
+    def test_msiRenameCollection_does_rename_collections__issue_4597(self):
+        src = os.path.join(self.admin.session_collection, 'col.a')
+        dst = os.path.join(self.admin.session_collection, 'col.a.renamed')
+        self.admin.assert_icommand(['imkdir', src])
+
+        rule_file = os.path.join(self.admin.local_session_dir, 'test_rule_file.r')
+        rule_string = '''
+main {{
+    *src = "{0}";
+    *dst = "{1}";
+    msiRenameCollection(*src, *dst);
+}}
+INPUT null
+OUTPUT ruleExecOut'''
+
+        with open(rule_file, 'wt') as f:
+            print(rule_string.format(src, dst), file=f, end='')
+
+        rep_name = 'irods_rule_engine_plugin-irods_rule_language-instance'
+        self.admin.assert_icommand(['irule', '-r', rep_name, '-F', rule_file])
+        self.admin.assert_icommand(['ils', '-l', dst], 'STDOUT', [dst])
+
+        with open(rule_file, 'wt') as f:
+            print(rule_string.format(dst, os.path.basename(src)), file=f, end='')
+
+        self.admin.assert_icommand(['irule', '-r', rep_name, '-F', rule_file], 'STDERR', ['-358000 OBJ_PATH_DOES_NOT_EXIST'])
+        self.admin.assert_icommand(['ils', '-l', dst], 'STDOUT', [dst])
+
+    def test_msiDataObjPhymv_to_resource_hierarchy__3234(self):
+        source_resource = self.admin.default_resource
+        passthrough_resource = 'phymv_pt'
+        path_to_leaf_resource_vault = tempfile.mkdtemp()
+        leaf_resource = 'leafresc'
+        resource_hierarchy = ';'.join([passthrough_resource, leaf_resource])
+        data_object_name = 'phymv_obj'
+        logical_path = os.path.join(self.admin.session_collection, data_object_name)
+
+        rule_file = os.path.join(self.admin.local_session_dir, 'test_msiDataObjPhymv_to_resource_hierarchy__3234.r')
+        rule_string = '''
+test_msiDataObjPhymv_to_resource_hierarchy__3234 {{
+    *logical_path = "{0}"
+    *destination_resource = "{1}";
+    *source_resource = "{2}";
+    msiDataObjPhymv(*logical_path, *destination_resource, *source_resource, "null", "null", *status);
+    writeLine("stdout", "msiDataObjPhymv status:[*status]");
+}}
+OUTPUT ruleExecOut
+'''
+
+        try:
+            self.admin.assert_icommand(['iadmin', 'mkresc', passthrough_resource, 'passthru'], 'STDOUT', passthrough_resource)
+            self.admin.assert_icommand(['iadmin', 'mkresc', leaf_resource, 'unixfilesystem',
+                socket.gethostname() + ':' + path_to_leaf_resource_vault], 'STDOUT', 'unixfilesystem')
+            self.admin.assert_icommand(['iadmin', 'addchildtoresc', passthrough_resource, leaf_resource])
+
+            with open(rule_file, 'wt') as f:
+                print(rule_string.format(logical_path, leaf_resource, source_resource), file=f, end='')
+            self.admin.assert_icommand(['iput', rule_file, logical_path])
+            self.admin.assert_icommand(['iadmin', 'ls', 'logical_path', logical_path, 'replica_number', '0'],
+                'STDOUT', 'DATA_RESC_HIER: {}'.format(source_resource))
+
+            rep_name = 'irods_rule_engine_plugin-irods_rule_language-instance'
+            self.admin.assert_icommand(['irule', '-r', rep_name, '-F', rule_file], 'STDOUT', 'msiDataObjPhymv status')
+            self.admin.assert_icommand(['iadmin', 'ls', 'logical_path', logical_path, 'replica_number', '0'],
+                'STDOUT', 'DATA_RESC_HIER: {}'.format(resource_hierarchy))
+
+        finally:
+            if os.path.exists(rule_file):
+                os.unlink(rule_file)
+            self.admin.assert_icommand(['irm', '-f', logical_path])
+            self.admin.run_icommand(['iadmin', 'rmchildfromresc', passthrough_resource, leaf_resource])
+            self.admin.run_icommand(['iadmin', 'rmresc', passthrough_resource])
+            self.admin.run_icommand(['iadmin', 'rmresc', leaf_resource])
+
+    @unittest.skip(("Fails against databases with transaction isolation level set to REPEATABLE-READ (e.g. MySQL). "
+                    "For more details, see https://github.com/irods/irods/issues/4917"))
+    def test_msi_atomic_apply_metadata_operations__issue_4484(self):
+        def do_test(entity_name, entity_type, operation, expected_output=None):
+            json_input = json.dumps({
+                'entity_name': entity_name,
+                'entity_type': entity_type,
+                'operations': [
+                    {
+                        'operation': operation,
+                        'attribute': 'issue_4484_name',
+                        'value': 'issue_4484_value',
+                        'units': 'issue_4484_units'
+                    }
+                ]
+            })
+
+            rep_name = 'irods_rule_engine_plugin-irods_rule_language-instance'
+            rule = "msi_atomic_apply_metadata_operations('{0}', *ignored)".format(json_input)
+            self.admin.assert_icommand(['irule', '-r', rep_name, rule, 'null', 'null'])
+
+            # Convert entity type to correct type for imeta.
+            imeta_type = '-u'
+            if   entity_type == 'resource':    imeta_type = '-R'
+            elif entity_type == 'collection':  imeta_type = '-C'
+            elif entity_type == 'data_object': imeta_type = '-d'
+
+            if   expected_output is not None: imeta_output = expected_output
+            elif operation == 'add':          imeta_output = ['issue_4484_name', 'issue_4484_value', 'issue_4484_units']
+            elif operation == 'remove':       imeta_output = ['None']
+
+            self.admin.assert_icommand(['imeta', 'ls', imeta_type, entity_name], 'STDOUT', imeta_output)
+
+        do_test(self.admin.username, 'user', 'add')
+        do_test(self.admin.username, 'user', 'remove')
+
+        do_test(self.admin.default_resource, 'resource', 'add')
+        do_test(self.admin.default_resource, 'resource', 'remove')
+
+        do_test(self.admin.session_collection, 'collection', 'add')
+        do_test(self.admin.session_collection, 'collection', 'remove')
+
+        filename = os.path.join(self.admin.local_session_dir, 'issue_4484.txt')
+        lib.make_file(filename, 1, 'arbitrary')
+        self.admin.assert_icommand(['iput', filename])
+        data_object = os.path.join(self.admin.session_collection, os.path.basename(filename))
+        do_test(data_object, 'data_object', 'add')
+        do_test(data_object, 'data_object', 'remove')
+
+        # Verify that the PEPs for the API plugin are firing.
+        config = IrodsConfig()
+        core_re_path = os.path.join(config.core_re_directory, 'core.re')
+
+        with lib.file_backed_up(core_re_path):
+            # Add PEPs to the core.re file.
+            with open(core_re_path, 'a') as core_re:
+                core_re.write('''
+                    pep_api_atomic_apply_metadata_operations_pre(*INSTANCE, *COMM, *JSON_INPUT, *JSON_OUTPUT) {{ 
+                        *kvp.'atomic_pre_fired' = 'YES';
+                        msiSetKeyValuePairsToObj(*kvp, '{0}', '-d');
+                    }}
+
+                    pep_api_atomic_apply_metadata_operations_post(*INSTANCE, *COMM, *JSON_INPUT, *JSON_OUTPUT) {{ 
+                        *kvp.'atomic_post_fired' = 'YES';
+                        msiSetKeyValuePairsToObj(*kvp, '{0}', '-d');
+                    }}
+                '''.format(data_object))
+
+            do_test(data_object, 'data_object', 'add', ['atomic_pre_fired', 'atomic_post_fired'])
+
+    @unittest.skip(("Fails against databases with transaction isolation level set to REPEATABLE-READ (e.g. MySQL). "
+                    "For more details, see https://github.com/irods/irods/issues/4917"))
+    def test_msi_atomic_apply_acl_operations__issue_5001(self):
+        def do_test(logical_path, acl):
+            json_input = json.dumps({
+                'logical_path': logical_path,
+                'operations': [
+                    {
+                        'entity_name': self.user0.username,
+                        'acl': acl
+                    }
+                ]
+            })
+
+            # Convert ACL string to the format expected by "ils".
+            if   'read'  == acl: ils_acl = 'read object'
+            elif 'write' == acl: ils_acl = 'modify object'
+            elif 'own'   == acl: ils_acl = 'own'
+
+            # Atomically set the ACL for "user0".
+            rep_name = 'irods_rule_engine_plugin-irods_rule_language-instance'
+            rule = "msi_atomic_apply_acl_operations('{0}', *ignored)".format(json_input)
+            self.admin.assert_icommand(['irule', '-r', rep_name, rule, 'null', 'null'])
+
+            # Verify that the new ACL is set for "user0".
+            expected_output = ' {0}#{1}:{2}'.format(self.user0.username, self.user0.zone_name, ils_acl)
+            self.admin.assert_icommand(['ils', '-A', logical_path], 'STDOUT', [expected_output])
+
+        sandbox = os.path.join(self.admin.session_collection, 'sandbox_5001')
+        self.admin.assert_icommand(['imkdir', sandbox])
+
+        # Test support for collections.
+        do_test(sandbox, 'read')
+        do_test(sandbox, 'write')
+        do_test(sandbox, 'own')
+
+        # Test support for data objects.
+        data_object = os.path.join(sandbox, 'issue_5001')
+        self.admin.assert_icommand(['istream', 'write', data_object], input='Hello, iRODS!')
+        do_test(data_object, 'read')
+        do_test(data_object, 'write')
+
+        # Verify that the PEPs for the API plugin are firing.
+        config = IrodsConfig()
+        core_re_path = os.path.join(config.core_re_directory, 'core.re')
+
+        with lib.file_backed_up(core_re_path):
+            # Add PEPs to the core.re file.
+            with open(core_re_path, 'a') as core_re:
+                core_re.write('''
+                    pep_api_atomic_apply_acl_operations_pre(*INSTANCE, *COMM, *JSON_INPUT, *JSON_OUTPUT) {{ 
+                        *kvp.'atomic_pre_fired' = 'YES';
+                        msiSetKeyValuePairsToObj(*kvp, '{0}', '-d');
+                    }}
+
+                    pep_api_atomic_apply_acl_operations_post(*INSTANCE, *COMM, *JSON_INPUT, *JSON_OUTPUT) {{ 
+                        *kvp.'atomic_post_fired' = 'YES';
+                        msiSetKeyValuePairsToObj(*kvp, '{0}', '-d');
+                    }}
+                '''.format(data_object))
+
+            do_test(data_object, 'own')
+            self.admin.assert_icommand(['imeta', 'ls', '-d', data_object], 'STDOUT', ['atomic_pre_fired', 'atomic_post_fired'])
+

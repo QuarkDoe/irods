@@ -4,8 +4,6 @@
 /* rcConnect.h - common header file for client connect
  */
 
-
-
 #ifndef RC_CONNECT_H__
 #define RC_CONNECT_H__
 
@@ -31,20 +29,19 @@ struct thread_context;
 #include <openssl/err.h>
 
 /* definition for the reconnFlag */
-#define NO_RECONN	0	/* no reconnection */
-#define RECONN_NOTUSED	1	/* this has been deprecated */
-#define RECONN_TIMEOUT	200
+#define NO_RECONN       0       /* no reconnection */
+#define RECONN_NOTUSED  1       /* this has been deprecated */
+#define RECONN_TIMEOUT  200
 
 #define RECONN_TIMEOUT_TIME  600   /* re-connection timeout time in sec */
 
 
-typedef enum {
-    PROCESSING_STATE,	 /* the process is not sending nor receiving */
+typedef enum ProcState {
+    PROCESSING_STATE,    /* the process is not sending nor receiving */
     RECEIVING_STATE,
     SENDING_STATE,
     CONN_WAIT_STATE
-}
-procState_t;
+} procState_t;
 
 typedef struct reconnMsg {
     int status;
@@ -59,17 +56,17 @@ typedef struct dataSeg {
     rodsLong_t offset;
 } dataSeg_t;
 
-typedef enum {
+typedef enum FileRestartFlag {
     FILE_RESTART_OFF,
     FILE_RESTART_ON
 } fileRestartFlag_t;
 
-typedef enum {
+typedef enum FileRestartStatus {
     FILE_NOT_RESTART,
     FILE_RESTARTED
 } fileRestartStatus_t;
 
-typedef struct {
+typedef struct FileRestartInfo {
     char fileName[MAX_NAME_LEN];        /* the local file name to restart */
     char objPath[MAX_NAME_LEN];         /* the irodsPath */
     int numSeg;         /* number of segments. should equal to num threads */
@@ -78,31 +75,31 @@ typedef struct {
     dataSeg_t dataSeg[MAX_NUM_CONFIG_TRAN_THR];
 } fileRestartInfo_t;
 
-typedef struct {
+typedef struct FileRestart {
     fileRestartFlag_t flags;
-    rodsLong_t writtenSinceUpdated;	/* bytes trans since last update */
+    rodsLong_t writtenSinceUpdated;     /* bytes trans since last update */
     char infoFile[MAX_NAME_LEN];        /* file containing restart info */
     fileRestartInfo_t info;     /* must be the last item because of PI */
 } fileRestart_t;
 
-typedef enum {
+typedef enum ProcLogFlag {
     PROC_LOG_NOT_DONE,  /* the proc logging in log/proc not done yet */
     PROC_LOG_DONE       /* the proc logging in log/proc is done */
 } procLogFlag_t;
 
 /* The client connection handle */
 
-typedef struct {
+typedef struct RcComm {
     irodsProt_t                irodsProt;
     char                       host[NAME_LEN];
     int                        sock;
     int                        portNum;
-    int                        loggedIn;	/* already logged in ? */
+    int                        loggedIn;        /* already logged in ? */
     struct sockaddr_in         localAddr;   /* local address */
     struct sockaddr_in         remoteAddr;  /* remote address */
     userInfo_t                 proxyUser;
     userInfo_t                 clientUser;
-    version_t*                 svrVersion;	/* the server's version */
+    version_t*                 svrVersion;      /* the server's version */
     rError_t*                  rError;
     int                        flag;
     transferStat_t             transStat;
@@ -111,7 +108,7 @@ typedef struct {
     int                        windowSize;
     int                        reconnectedSock;
     time_t                     reconnTime;
-    volatile int		       exit_flg;
+    volatile int                       exit_flg;
     struct thread_context*     thread_ctx;
     procState_t                agentState;
     procState_t                clientState;
@@ -133,26 +130,25 @@ typedef struct {
     // this struct needs to stay at the bottom of
     // rcComm_t
     fileRestart_t              fileRestart;
-
 } rcComm_t;
 
-typedef struct {
+typedef struct PerfStat {
     int orphanCnt;
     int nonOrphanCnt;
 } perfStat_t;
 
 /* the server connection handle. probably should go somewhere else */
-typedef struct {
+typedef struct RsComm {
     irodsProt_t irodsProt;
     int sock;
     int connectCnt;
-    struct sockaddr_in  localAddr;   /* local address */
-    struct sockaddr_in  remoteAddr;  /* remote address */
-    char clientAddr[NAME_LEN]; 	/* str version of remoteAddr */
+    struct sockaddr_in localAddr;           // local address
+    struct sockaddr_in remoteAddr;          // remote address
+    char clientAddr[NAME_LEN];              // str version of remoteAddr
     userInfo_t proxyUser;
     userInfo_t clientUser;
-    rodsEnv myEnv;	/* the local user */
-    version_t cliVersion;      /* the client's version */
+    rodsEnv myEnv;                          // the local user
+    version_t cliVersion;                   // the client's version
     char option[LONG_NAME_LEN];
     procLogFlag_t procLogFlag;
     rError_t rError;
@@ -182,14 +178,17 @@ typedef struct {
     int ssl_do_accept;
     int ssl_do_shutdown;
 
-    char negotiation_results[ MAX_NAME_LEN ];
-    unsigned char shared_secret[ NAME_LEN ];
+    char negotiation_results[MAX_NAME_LEN];
+    unsigned char shared_secret[NAME_LEN];
 
     int  key_size;
     int  salt_size;
     int  num_hash_rounds;
-    char encryption_algorithm[ NAME_LEN ];
+    char encryption_algorithm[NAME_LEN];
 
+    // A key-value container that is available for general purpose
+    // use throughout server-side operations.
+    keyValPair_t session_props;
 } rsComm_t;
 
 #ifdef __cplusplus
@@ -261,4 +260,5 @@ isLoopbackAddress( const char* ip_address );
 #ifdef __cplusplus
 }
 #endif
-#endif	// RC_CONNECT_H__
+#endif  // RC_CONNECT_H__
+

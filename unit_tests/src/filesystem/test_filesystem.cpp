@@ -60,7 +60,6 @@ TEST_CASE("filesystem")
     // clang-format off
     namespace fs = irods::experimental::filesystem;
 
-    using dstream           = irods::experimental::io::dstream;
     using odstream          = irods::experimental::io::odstream;
     using default_transport = irods::experimental::io::client::default_transport;
     // clang-format on
@@ -80,8 +79,8 @@ TEST_CASE("filesystem")
         REQUIRE(fs::client::create_collections(conn, sandbox / "dir/subdir"));
 
         {
-            default_transport tp{conn};        
-            dstream{tp, sandbox / "file1.txt"};
+            default_transport tp{conn};
+            odstream{tp, sandbox / "file1.txt"};
         }
 
         REQUIRE(fs::client::exists(conn, sandbox / "file1.txt"));
@@ -108,8 +107,8 @@ TEST_CASE("filesystem")
         const auto d1 = from / "d1.txt";
 
         {
-            default_transport tp{conn};        
-            dstream{tp, d1};
+            default_transport tp{conn};
+            odstream{tp, d1};
         }
 
         REQUIRE(fs::client::exists(conn, d1));
@@ -129,6 +128,17 @@ TEST_CASE("filesystem")
         REQUIRE(fs::client::remove(conn, col1));
         REQUIRE(fs::client::remove_all(conn, sandbox / "col2/col3/col4"));
         REQUIRE(fs::client::remove_all(conn, sandbox / "col2", fs::remove_options::no_trash));
+    }
+
+    SECTION("create and remove collections with extended options")
+    {
+        const fs::path col1 = sandbox / "col1";
+        REQUIRE(fs::client::create_collection(conn, col1));
+        REQUIRE(fs::client::create_collection(conn, sandbox / "col2", col1));
+        REQUIRE(fs::client::create_collections(conn, sandbox / "col2/col3/col4/col5"));
+        REQUIRE(fs::client::remove(conn, col1, {true, false, false, true, false}));
+        REQUIRE(fs::client::remove_all(conn, sandbox / "col2/col3/col4", {true, false, false, true, false}));
+        REQUIRE(fs::client::remove_all(conn, sandbox / "col2", {true, false, false, true, false}));
     }
 
     SECTION("existence checking")
@@ -353,6 +363,27 @@ TEST_CASE("filesystem")
 
             REQUIRE(fs::client::remove(conn, p, fs::remove_options::no_trash));
         }
+
+        SECTION("trailing path separators are ignored when iterating over a collection")
+        {
+            auto p = sandbox;
+            p += fs::path::preferred_separator;
+            for (auto&& e : fs::client::collection_iterator{conn, p}) { static_cast<void>(e); };
+            for (auto&& e : fs::client::recursive_collection_iterator{conn, p}) { static_cast<void>(e); };
+        }
+
+        SECTION("collection iterators throw an exception when passed a data object path")
+        {
+            const auto p = sandbox / "foo";
+
+            default_transport tp{conn};
+            odstream{tp, p} << "test file";
+            REQUIRE(fs::client::exists(conn, p));
+
+            const auto* expected_msg = "could not open collection for reading [handle => -834000]";
+            REQUIRE_THROWS(fs::client::collection_iterator{conn, p}, expected_msg);
+            REQUIRE_THROWS(fs::client::recursive_collection_iterator{conn, p}, expected_msg);
+        }
     }
 
     SECTION("object type checking")
@@ -364,7 +395,7 @@ TEST_CASE("filesystem")
 
         {
             default_transport tp{conn};
-            dstream{tp, p};
+            odstream{tp, p};
         }
 
         REQUIRE(fs::client::is_data_object(conn, p));
@@ -374,6 +405,93 @@ TEST_CASE("filesystem")
 
     SECTION("metadata management")
     {
+        SECTION("basic operations")
+        {
+            const fs::path p = sandbox / "data_object.a";
+
+            {
+                default_transport tp{conn};
+                odstream{tp, p};
+            }
+
+            fs::metadata md{"n1", "v1", "u1"};
+            REQUIRE_NOTHROW(fs::client::set_metadata(conn, p, md));
+
+            irods::at_scope_exit remove_metadata{[&] {
+                for (auto&& md : {fs::metadata{"n1", "v1", "u1"},
+                                              {"n1", "v2", "u2"},
+                                              {"n1", "v2", "u1"},
+                                              {"n1", "v1", "u2"}})
+                {
+                    try { fs::client::remove_metadata(conn, p, md); } catch (...) {}
+                }
+            }};
+
+            const auto results = fs::client::get_metadata(conn, p);
+            REQUIRE(results.size() == 1);
+            REQUIRE(results[0].attribute == md.attribute);
+            REQUIRE(results[0].value == md.value);
+            REQUIRE(results[0].units == md.units);
+
+            SECTION("set operation updates metadata attached to a single object")
+            {
+                md.value = "v2";
+                md.units = "u2";
+                REQUIRE_NOTHROW(fs::client::set_metadata(conn, p, md));
+
+                const auto results = fs::client::get_metadata(conn, p);
+                REQUIRE(results.size() == 1);
+                REQUIRE(results[0].attribute == md.attribute);
+                REQUIRE(results[0].value == md.value);
+                REQUIRE(results[0].units == md.units);
+            }
+
+            SECTION("set operation attaches new metadata and detaches old metadata if existing metadata is attached to multiple objects")
+            {
+                const fs::path q = sandbox / "data_object.b";
+
+                {
+                    default_transport tp{conn};
+                    odstream{tp, q};
+                }
+
+                REQUIRE_NOTHROW(fs::client::set_metadata(conn, q, md));
+
+                auto results = fs::client::get_metadata(conn, q);
+                REQUIRE(results.size() == 1);
+                REQUIRE(results[0].attribute == md.attribute);
+                REQUIRE(results[0].value == md.value);
+                REQUIRE(results[0].units == md.units);
+
+                md.value = "v2";
+                md.units = "u2";
+                REQUIRE_NOTHROW(fs::client::set_metadata(conn, p, md));
+                REQUIRE(fs::client::get_metadata(conn, p).size() == 1);
+            }
+
+            SECTION("add operation allows reuse of attribute names when the value or units result in unique metadata")
+            {
+                md.value = "v2";
+                REQUIRE_NOTHROW(fs::client::add_metadata(conn, p, md));
+                REQUIRE(fs::client::get_metadata(conn, p).size() == 2);
+
+                md.value = "v1";
+                md.units = "u2";
+                REQUIRE_NOTHROW(fs::client::add_metadata(conn, p, md));
+                REQUIRE(fs::client::get_metadata(conn, p).size() == 3);
+            }
+
+            SECTION("remove operation")
+            {
+                REQUIRE_NOTHROW(fs::client::remove_metadata(conn, p, md));
+                REQUIRE(fs::client::get_metadata(conn, p).empty());
+
+                REQUIRE_NOTHROW(fs::client::set_metadata(conn, sandbox, md));
+                REQUIRE_NOTHROW(fs::client::remove_metadata(conn, sandbox, md));
+                REQUIRE(fs::client::get_metadata(conn, sandbox).empty());
+            }
+        }
+
         SECTION("collections")
         {
             const std::array<fs::metadata, 3> metadata{{
@@ -382,9 +500,9 @@ TEST_CASE("filesystem")
                 {"n3", "v3", "u3"}
             }};
 
-            REQUIRE(fs::client::set_metadata(conn, sandbox, metadata[0]));
-            REQUIRE(fs::client::set_metadata(conn, sandbox, metadata[1]));
-            REQUIRE(fs::client::set_metadata(conn, sandbox, metadata[2]));
+            REQUIRE_NOTHROW(fs::client::set_metadata(conn, sandbox, metadata[0]));
+            REQUIRE_NOTHROW(fs::client::set_metadata(conn, sandbox, metadata[1]));
+            REQUIRE_NOTHROW(fs::client::set_metadata(conn, sandbox, metadata[2]));
 
             const auto results = fs::client::get_metadata(conn, sandbox);
             REQUIRE_FALSE(results.empty());
@@ -396,9 +514,10 @@ TEST_CASE("filesystem")
                                                    _lhs.units == _rhs.units;
                                         }));
 
-            REQUIRE(fs::client::remove_metadata(conn, sandbox, metadata[0]));
-            REQUIRE(fs::client::remove_metadata(conn, sandbox, metadata[1]));
-            REQUIRE(fs::client::remove_metadata(conn, sandbox, metadata[2]));
+            REQUIRE_NOTHROW(fs::client::remove_metadata(conn, sandbox, metadata[0]));
+            REQUIRE_NOTHROW(fs::client::remove_metadata(conn, sandbox, metadata[1]));
+            REQUIRE_NOTHROW(fs::client::remove_metadata(conn, sandbox, metadata[2]));
+            REQUIRE(fs::client::get_metadata(conn, sandbox).empty());
         }
 
         SECTION("data objects")
@@ -407,12 +526,11 @@ TEST_CASE("filesystem")
 
             {
                 default_transport tp{conn};
-                dstream{tp, p};
+                odstream{tp, p};
             }
 
-            REQUIRE(fs::client::exists(conn, p));
-
-            REQUIRE(fs::client::set_metadata(conn, p, {"n1", "v1", "u1"}));
+            fs::metadata md{"n1", "v1", "u1"};
+            REQUIRE_NOTHROW(fs::client::set_metadata(conn, p, md));
 
             const auto results = fs::client::get_metadata(conn, p);
             REQUIRE_FALSE(results.empty());
@@ -420,10 +538,60 @@ TEST_CASE("filesystem")
             REQUIRE(results[0].value == "v1");
             REQUIRE(results[0].units == "u1");
 
-            REQUIRE(fs::client::remove_metadata(conn, p, {"n1", "v1", "u1"}));
-
-            REQUIRE(fs::client::remove(conn, p, fs::remove_options::no_trash));
+            REQUIRE_NOTHROW(fs::client::remove_metadata(conn, p, md));
+            REQUIRE(fs::client::get_metadata(conn, p).empty());
         }
+
+        SECTION("exceptions")
+        {
+            std::array<fs::metadata, 3> metadata{{
+                {"n1", "v1", "u1"},
+                {"n2", "v2", "u2"},
+                {"n3", "v3", "u3"}
+            }};
+
+            REQUIRE_THROWS(fs::client::set_metadata(conn, "invalid_path", metadata[0]), "cannot set metadata: unknown object type");
+            REQUIRE_THROWS(fs::client::add_metadata(conn, "invalid_path", metadata[0]), "cannot add metadata: unknown object type");
+            REQUIRE_THROWS(fs::client::remove_metadata(conn, "invalid_path", metadata[0]), "cannot remove metadata: unknown object type");
+
+            // Atomic bulk operations.
+            REQUIRE_THROWS(fs::client::add_metadata(conn, "invalid_path", metadata), "cannot apply metadata operations: unknown object type");
+            REQUIRE_THROWS(fs::client::remove_metadata(conn, "invalid_path", metadata), "cannot apply metadata operations: unknown object type");
+        }
+
+#ifdef IRODS_ENABLE_ALL_UNIT_TESTS
+        SECTION("atomic operations")
+        {
+            // IMPORTANT
+            // ~~~~~~~~~
+            // This test will fail against databases that have the transaction isolation
+            // level set to REPEATABLE-READ or higher (e.g. MySQL by default). This is because
+            // the database plugin cannot see changes committed by the nanodbc library.
+            //
+            // For more details, see: https://github.com/irods/irods/issues/4917
+
+            std::array<fs::metadata, 3> metadata{{
+                {"n1", "v1", "u1"},
+                {"n2", "v2", "u2"},
+                {"n3", "v3", "u3"}
+            }};
+
+            REQUIRE_NOTHROW(fs::client::add_metadata(conn, sandbox, metadata));
+
+            auto results = fs::client::get_metadata(conn, sandbox);
+            REQUIRE(results.size() == 3);
+            REQUIRE(std::is_permutation(std::begin(results), std::end(results), std::begin(metadata),
+                                        [](const auto& _lhs, const auto& _rhs)
+                                        {
+                                            return _lhs.attribute == _rhs.attribute &&
+                                                   _lhs.value == _rhs.value &&
+                                                   _lhs.units == _rhs.units;
+                                        }));
+
+            REQUIRE_NOTHROW(fs::client::remove_metadata(conn, sandbox, metadata));
+            REQUIRE(fs::client::get_metadata(conn, sandbox).empty());
+        }
+#endif // IRODS_ENABLE_ALL_UNIT_TESTS
     }
 }
 

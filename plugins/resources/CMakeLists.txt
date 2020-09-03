@@ -37,10 +37,6 @@ set(IRODS_RESOURCE_PLUGIN_REPLICATION_SOURCES
   ${CMAKE_SOURCE_DIR}/plugins/resources/replication/librepl.cpp
   )
 set(
-  IRODS_RESOURCE_PLUGIN_ROUNDROBIN_SOURCES
-  ${CMAKE_SOURCE_DIR}/plugins/resources/roundrobin/libroundrobin.cpp
-  )
-set(
   IRODS_RESOURCE_PLUGIN_STRUCTFILE_SOURCES
   ${CMAKE_SOURCE_DIR}/plugins/resources/structfile/libstructfile.cpp
   )
@@ -63,7 +59,6 @@ set(
   passthru
   random
   replication
-  roundrobin
   structfile
   univmss
   unixfilesystem
@@ -91,7 +86,7 @@ foreach(PLUGIN ${IRODS_RESOURCE_PLUGINS})
     ${CMAKE_SOURCE_DIR}/server/re/include
     ${IRODS_EXTERNALS_FULLPATH_ARCHIVE}/include
     ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-    ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
+    ${IRODS_EXTERNALS_FULLPATH_FMT}/include
     )
 
   target_link_libraries(
@@ -99,13 +94,14 @@ foreach(PLUGIN ${IRODS_RESOURCE_PLUGINS})
     PRIVATE
     irods_server
     irods_common
+    ${IRODS_EXTERNALS_FULLPATH_ARCHIVE}/lib/libarchive.so
     ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so
     ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
-    ${IRODS_EXTERNALS_FULLPATH_ARCHIVE}/lib/libarchive.so
+    ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
     ${OPENSSL_CRYPTO_LIBRARY}
     )
 
-  target_compile_definitions(${PLUGIN} PRIVATE ENABLE_RE ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED)
+  target_compile_definitions(${PLUGIN} PRIVATE ENABLE_RE ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED IRODS_ENABLE_SYSLOG)
   target_compile_options(${PLUGIN} PRIVATE -Wno-write-strings)
   set_property(TARGET ${PLUGIN} PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
 endforeach()

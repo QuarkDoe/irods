@@ -125,56 +125,70 @@ template <log::level Level>
 class log::logger<Category>::impl
 {
 public:
+#ifdef IRODS_ENABLE_SYSLOG
     template <typename T>
     using is_iterable = decltype(std::begin(std::declval<std::decay_t<T>>()));
+
+    template <typename ...Args>
+    void operator()(const char* _format, Args&&... _args) const
+    {
+        if (should_log()) {
+            const auto msg = {log::key_value{tag::log::message, fmt::format(_format, std::forward<Args>(_args)...)}};
+            log_message(std::begin(msg), std::end(msg));
+        }
+    }
+
+    template <typename ...Args>
+    void operator()(const std::string& _format, Args&&... _args) const
+    {
+        if (should_log()) {
+            const auto msg = {log::key_value{tag::log::message, fmt::format(_format, std::forward<Args>(_args)...)}};
+            log_message(std::begin(msg), std::end(msg));
+        }
+    }
 
     void operator()(const std::string& _msg) const
     {
         (*this)({{tag::log::message, _msg}});
     }
 
-    void operator()(std::initializer_list<log::key_value> _list) const noexcept
+    void operator()(std::initializer_list<log::key_value> _list) const
     {
         (*this)(std::begin(_list), std::end(_list));
     }
 
     template <typename Container,
-              typename = is_iterable<Container>>
-    void operator()(const Container& _container) const noexcept
+              typename ValueType = typename Container::value_type,
+              typename = is_iterable<Container>,
+              typename = std::enable_if_t<std::is_same_v<ValueType, log::key_value>>>
+    void operator()(const Container& _container) const
     {
         (*this)(std::begin(_container), std::end(_container));
     }
 
-    template <typename ForwardIt>
-    void operator()(ForwardIt _first, ForwardIt _last) const noexcept
+    template <typename ForwardIt,
+              typename ValueType = typename std::iterator_traits<ForwardIt>::value_type,
+              typename = std::enable_if_t<std::is_same_v<ValueType, log::key_value>>>
+    void operator()(ForwardIt _first, ForwardIt _last) const
     {
-        if (!should_log()) {
-            return;
+        if (should_log()) {
+            log_message(_first, _last);
         }
-
-        const auto msg = to_json_string(_first, _last);
-
-        if constexpr (Level == level::trace) {
-            log_->trace(msg);
-        }
-        else if constexpr (Level == level::debug) {
-            log_->debug(msg);
-        }
-        else if constexpr (Level == level::info) {
-            log_->info(msg);
-        }
-        else if constexpr (Level == level::warn) {
-            log_->warn(msg);
-        }
-        else if constexpr (Level == level::error) {
-            log_->error(msg);
-        }
-        else if constexpr (Level == level::critical) {
-            log_->critical(msg);
-        }
-
-        append_to_r_error_stack(_first, _last);
     }
+#else
+    // Clients should not have access to the logger, therefore we provide a
+    // different implementation to allow inclusion of the logger without
+    // breaking any existing implementation.
+
+    constexpr void operator()(std::initializer_list<log::key_value> _list) const noexcept
+    {
+    }
+
+    template <typename ...Args>
+    constexpr void operator()(Args&&...) const noexcept
+    {
+    }
+#endif // IRODS_ENABLE_SYSLOG
 
 private:
     struct tag
@@ -314,6 +328,37 @@ private:
         object[tag::server::timestamp] = utc_timestamp();
 
         return object.dump();
+    }
+
+    template <typename ForwardIt,
+              typename ValueType = typename std::iterator_traits<ForwardIt>::value_type,
+              typename = std::enable_if_t<std::is_same_v<ValueType, log::key_value>>>
+    void log_message(ForwardIt _first, ForwardIt _last) const
+    {
+#ifdef IRODS_ENABLE_SYSLOG
+        const auto msg = to_json_string(_first, _last);
+
+        if constexpr (Level == level::trace) {
+            log_->trace(msg);
+        }
+        else if constexpr (Level == level::debug) {
+            log_->debug(msg);
+        }
+        else if constexpr (Level == level::info) {
+            log_->info(msg);
+        }
+        else if constexpr (Level == level::warn) {
+            log_->warn(msg);
+        }
+        else if constexpr (Level == level::error) {
+            log_->error(msg);
+        }
+        else if constexpr (Level == level::critical) {
+            log_->critical(msg);
+        }
+
+        append_to_r_error_stack(_first, _last);
+#endif // IRODS_ENABLE_SYSLOG
     }
 
     template <typename ForwardIt>

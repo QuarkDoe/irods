@@ -18,16 +18,22 @@ set(
 
 set(
   IRODS_LIB_CORE_INCLUDE_HEADERS
+  ${CMAKE_SOURCE_DIR}/lib/core/include/alignPointer.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/apiHandler.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/base64.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/bunUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/chksumUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/client_connection.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/connection_pool.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/cpUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/dispatch_processor.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/dstream.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/experimental_plugin_framework.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/fsckUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/future.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/getRodsEnv.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/getUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/group.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/guiProgressCallback.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_assert.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_constants.hpp
@@ -89,6 +95,8 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_virtual_path.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/query_builder.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/query_processor.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/key_value_proxy.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/lifetime_manager.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/lsUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/mcollUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/microservice.hpp
@@ -100,6 +108,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/objInfo.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/osauth.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/packStruct.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/parallel_transfer_engine.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/parseCommandLine.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/phybunUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/phymvUtil.h
@@ -112,6 +121,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/regUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/region.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/replUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/resource_administration.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/rmdirUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/rmUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/rmtrashUtil.h
@@ -133,6 +143,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/rodsUser.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/rsyncUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/scanUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/shared_memory_object.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/sockComm.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/sockCommNetworkInterface.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/socket_wrapper.hpp
@@ -141,6 +152,9 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/termiosUtil.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/thread_pool.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/trimUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/user.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/user_administration.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/with_durability.hpp
   )
 
 set(
@@ -165,6 +179,8 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/api/include/authPluginRequest.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/authRequest.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/authResponse.h
+  ${CMAKE_SOURCE_DIR}/lib/api/include/atomic_apply_acl_operations.h
+  ${CMAKE_SOURCE_DIR}/lib/api/include/atomic_apply_metadata_operations.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/authenticate.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/bulkDataObjPut.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/bulkDataObjReg.h
@@ -174,6 +190,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/api/include/closeCollection.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/collCreate.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/collRepl.h
+  ${CMAKE_SOURCE_DIR}/lib/api/include/data_object_modify_info.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/dataCopy.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/dataGet.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/dataObjChksum.h
@@ -225,6 +242,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/api/include/fileUnlink.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/fileWrite.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/genQuery.h
+  ${CMAKE_SOURCE_DIR}/lib/api/include/get_file_descriptor_info.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/generalAdmin.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/generalRowInsert.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/generalRowPurge.h
@@ -263,7 +281,6 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/api/include/ruleExecMod.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/ruleExecSubmit.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/server_report.h
-  ${CMAKE_SOURCE_DIR}/lib/api/include/set_round_robin_context.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/simpleQuery.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/specificQuery.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/sslEnd.h
@@ -292,6 +309,8 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/api/include/subStructFileUnlink.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/subStructFileWrite.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/syncMountedColl.h
+  ${CMAKE_SOURCE_DIR}/lib/api/include/replica_open.h
+  ${CMAKE_SOURCE_DIR}/lib/api/include/replica_close.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/ticketAdmin.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/unbunAndRegPhyBunfile.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/unregDataObj.h
@@ -308,6 +327,11 @@ set(
 
 set(
   IRODS_SERVER_API_INCLUDE_HEADERS
+  ${CMAKE_SOURCE_DIR}/server/api/include/rs_atomic_apply_acl_operations.hpp
+  ${CMAKE_SOURCE_DIR}/server/api/include/rs_atomic_apply_metadata_operations.hpp
+  ${CMAKE_SOURCE_DIR}/server/api/include/rs_get_file_descriptor_info.hpp
+  ${CMAKE_SOURCE_DIR}/server/api/include/rs_replica_open.hpp
+  ${CMAKE_SOURCE_DIR}/server/api/include/rs_replica_close.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsAuthCheck.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsAuthPluginRequest.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsAuthRequest.hpp
@@ -409,7 +433,6 @@ set(
   ${CMAKE_SOURCE_DIR}/server/api/include/rsRuleExecMod.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsRuleExecSubmit.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsServerReport.hpp
-  ${CMAKE_SOURCE_DIR}/server/api/include/rsSetRoundRobinContext.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsSimpleQuery.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsSpecificQuery.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsSslEnd.hpp
@@ -447,8 +470,10 @@ set(
 
 set(
   IRODS_SERVER_CORE_INCLUDE_HEADERS
+  ${CMAKE_SOURCE_DIR}/server/core/include/client_api_whitelist.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/collection.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/dataObjOpr.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/replica_access_table.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/fileOpr.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/initServer.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irodsReServer.hpp
@@ -499,7 +524,11 @@ set(
   ${CMAKE_SOURCE_DIR}/server/core/include/rsGlobalExtern.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/rsIcatOpr.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/rsLog.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/scoped_client_identity.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/scoped_privileged_client.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/server_utilities.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/specColl.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/voting.hpp
   )
 
 set(
@@ -571,6 +600,7 @@ install(
     PATTERN */filesystem/copy_options.hpp
     PATTERN */filesystem/detail.hpp
     PATTERN */filesystem/filesystem.hpp
+    PATTERN */filesystem/filesystem.tpp
     PATTERN */filesystem/filesystem_error.hpp
     PATTERN */filesystem/object_status.hpp
     PATTERN */filesystem/path.hpp
@@ -594,7 +624,6 @@ install(
     PATTERN */api_plugin_number.h
     PATTERN */api_plugin_number_map.hpp
     PATTERN */api_plugin_number_data.h
-    PATTERN */get_file_descriptor_info.h
   )
 
 # Install the "contents" of the "transport" directory into the "irods/transport" directory.

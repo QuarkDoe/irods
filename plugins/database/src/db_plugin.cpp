@@ -43,6 +43,7 @@
 // stl includes
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <iostream>
 #include <vector>
 #include <boost/regex.hpp>
@@ -2081,11 +2082,9 @@ irods::error db_mod_data_obj_meta_op(
 //        _ctx.prop_map().get< icatSessionStruct >( ICSS_PROP, icss );
 
 
-    int i = 0, j = 0, status = 0, upCols = 0;
+    int status = 0, upCols = 0;
     rodsLong_t iVal = 0; // JMC cppcheck - uninit var
     int status2 = 0;
-
-    int mode = 0;
 
     char logicalFileName[MAX_NAME_LEN];
     char logicalDirName[MAX_NAME_LEN];
@@ -2096,42 +2095,63 @@ irods::error db_mod_data_obj_meta_op(
     const char* whereValues[10];
     char idVal[MAX_NAME_LEN];
     int numConditions = 0;
-    char oldCopy[NAME_LEN];
-    char newCopy[NAME_LEN];
-    int adminMode = 0;
+    char replica_status_string[NAME_LEN]{};
 
     std::vector<const char *> updateCols;
     std::vector<const char *> updateVals;
 
-    /* regParamNames has the argument names (in _reg_param) that this
-       routine understands and colNames has the corresponding column
-       names; one for one. */
-    int dataTypeIndex = 1; /* matches table below for quick check */
-    // Using the keyword defines so there is one point of truth - hcj
-    const char *regParamNames[] = {
-        REPL_NUM_KW,        DATA_TYPE_KW,       DATA_SIZE_KW,
-        RESC_NAME_KW,       FILE_PATH_KW,       DATA_OWNER_KW,
-        DATA_OWNER_ZONE_KW, REPL_STATUS_KW,     CHKSUM_KW,
-        DATA_EXPIRY_KW,     DATA_COMMENTS_KW,   DATA_CREATE_KW,
-        DATA_MODIFY_KW,     DATA_MODE_KW,       RESC_HIER_STR_KW,
-        RESC_ID_KW, "END"
-
+    const std::vector<std::string_view> regParamNames = {
+        COLL_ID_KW,
+        DATA_CREATE_KW,
+        CHKSUM_KW,
+        DATA_EXPIRY_KW,
+        //DATA_ID_KW,
+        REPL_STATUS_KW,
+        //DATA_MAP_ID_KW,
+        DATA_MODE_KW,
+        DATA_NAME_KW,
+        DATA_OWNER_KW,
+        DATA_OWNER_ZONE_KW,
+        FILE_PATH_KW,
+        REPL_NUM_KW,
+        DATA_SIZE_KW,
+        STATUS_STRING_KW,
+        DATA_TYPE_KW,
+        VERSION_KW,
+        DATA_MODIFY_KW,
+        DATA_COMMENTS_KW,
+        // DATA_RESC_GROUP_NAME_KW,
+        RESC_HIER_STR_KW,
+        RESC_ID_KW,
+        RESC_NAME_KW
     };
 
-    /* If you update colNames, be sure to update DATA_EXPIRY_TS_IX if
-     * you add items before "data_expiry_ts" and */
-    const char *colNames[] = {
-        "data_repl_num",   "data_type_name", "data_size",
-        "resc_name",       "data_path",      "data_owner_name",
-        "data_owner_zone", "data_is_dirty",  "data_checksum",
-        "data_expiry_ts",  "r_comment",      "create_ts",
-        "modify_ts",       "data_mode",      "resc_hier",
-        "resc_id"
+    const std::vector<std::string_view> colNames = {
+        "coll_id",
+        "create_ts",
+        "data_checksum",
+        "data_expiry_ts",
+        //"data_id",
+        "data_is_dirty",
+        //"data_map_id",
+        "data_mode",
+        "data_name",
+        "data_owner_name",
+        "data_owner_zone",
+        "data_path",
+        "data_repl_num",
+        "data_size",
+        "data_status",
+        "data_type_name",
+        "data_version",
+        "modify_ts",
+        "r_comment",
+        //"resc_group_name",
+        "resc_hier",
+        "resc_id",
+        "resc_name"
     };
-    int DATA_EXPIRY_TS_IX = 9; /* must match index in above colNames table */
-    int MODIFY_TS_IX = 12;   /* must match index in above colNames table */
 
-    int DATA_SIZE_IX = 2;    /* must match index in above colNames table */
     int doingDataSize = 0;
     char dataSizeString[NAME_LEN] = "";
     char objIdString[MAX_NAME_LEN];
@@ -2141,23 +2161,26 @@ irods::error db_mod_data_obj_meta_op(
         rodsLog( LOG_SQL, "chlModDataObjMeta" );
     }
 
-    adminMode = 0;
-    theVal = getValByKey( _reg_param, ADMIN_KW );
-    if ( theVal != NULL ) {
-        adminMode = 1;
+    bool adminMode{};
+    if (getValByKey(_reg_param, ADMIN_KW)) {
+        if (LOCAL_PRIV_USER_AUTH != _ctx.comm()->clientUser.authInfo.authFlag) {
+            return ERROR(CAT_INSUFFICIENT_PRIVILEGE_LEVEL, "failed with insufficient privilege");
+        }
+        adminMode = true;
     }
 
     std::string update_resc_id_str;
 
     bool update_resc_id = false;
     /* Set up the updateCols and updateVals arrays */
-    for ( i = 0, j = 0; strcmp( regParamNames[i], "END" ); i++ ) {
-        theVal = getValByKey( _reg_param, regParamNames[i] );
-        if ( theVal != NULL ) {
-            if( std::string( "resc_name") == colNames[i]) {
+    std::size_t i = 0, j = 0;
+    for (i = 0, j = 0; i < regParamNames.size(); i++) {
+        theVal = getValByKey(_reg_param, regParamNames[i].data());
+        if (theVal) {
+            if(colNames[i] == "resc_name") {
                 continue;
             }
-            else if( std::string( "resc_hier") == colNames[i]) {
+            else if(colNames[i] == "resc_hier") {
                 updateCols.push_back( "resc_id" );
 
                 rodsLong_t resc_id;
@@ -2165,20 +2188,19 @@ irods::error db_mod_data_obj_meta_op(
 
                 update_resc_id_str = boost::lexical_cast<std::string>(resc_id);
                 updateVals.push_back( update_resc_id_str.c_str() );
-            } else {
-                updateCols.push_back( colNames[i] );
-                updateVals.push_back( theVal );
+            }
+            else {
+                updateCols.push_back(colNames[i].data());
+                updateVals.push_back(theVal);
             }
 
             if ( std::string( "resc_id" ) == colNames[i] || std::string( "resc_hier") == colNames[i]) {
                 update_resc_id = true;
             }
 
-            if ( i == DATA_EXPIRY_TS_IX ) {
-                /* if data_expiry, make sure it's
-                                               in the standard time-stamp
-                                               format: "%011d" */
-                if ( strcmp( colNames[i], "data_expiry_ts" ) == 0 ) { /* double check*/
+            if(regParamNames[i] == DATA_EXPIRY_KW) {
+                /* if data_expiry, make sure it's in the standard time-stamp format: "%011d" */
+                if (colNames[i] == "data_expiry_ts") { /* double check*/
                     if ( strlen( theVal ) < 11 ) {
                         static char theVal2[20];
                         time_t myTimeValue;
@@ -2189,11 +2211,9 @@ irods::error db_mod_data_obj_meta_op(
                 }
             }
 
-            if ( i == MODIFY_TS_IX ) {
-                /* if modify_ts, also make sure it's
-                                                in the standard time-stamp
-                                                format: "%011d" */
-                if ( strcmp( colNames[i], "modify_ts" ) == 0 ) { /* double check*/
+            if(regParamNames[i] == DATA_MODIFY_KW) {
+                /* if modify_ts, also make sure it's in the standard time-stamp format: "%011d" */
+                if (colNames[i] == "modify_ts") { /* double check*/
                     if ( strlen( theVal ) < 11 ) {
                         static char theVal3[20];
                         time_t myTimeValue;
@@ -2203,7 +2223,7 @@ irods::error db_mod_data_obj_meta_op(
                     }
                 }
             }
-            if ( i == DATA_SIZE_IX ) {
+            if(regParamNames[i] == DATA_SIZE_KW) {
                 doingDataSize = 1; /* flag to check size */
                 snprintf( dataSizeString, sizeof( dataSizeString ), "%s", theVal );
             }
@@ -2211,7 +2231,7 @@ irods::error db_mod_data_obj_meta_op(
             j++;
 
             /* If the datatype is being updated, check that it is valid */
-            if ( i == dataTypeIndex ) {
+            if(regParamNames[i] == DATA_TYPE_KW) {
                 status = cmlCheckNameToken( "data_type",
                                             theVal, &icss );
                 if ( status != 0 ) {
@@ -2301,14 +2321,7 @@ irods::error db_mod_data_obj_meta_op(
 
     snprintf( objIdString, MAX_NAME_LEN, "%lld", _data_obj_info->dataId );
 
-    if ( adminMode ) {
-        if ( _ctx.comm()->clientUser.authInfo.authFlag != LOCAL_PRIV_USER_AUTH ) {
-            return ERROR(
-                       CAT_INSUFFICIENT_PRIVILEGE_LEVEL,
-                       "failed with insufficient privilege" );
-        }
-    }
-    else {
+    if (!adminMode) {
         if ( doingDataSize == 1 && strlen( mySessionTicket ) > 0 ) {
             status = cmlTicketUpdateWriteBytes( mySessionTicket,
                                                 dataSizeString,
@@ -2399,12 +2412,6 @@ irods::error db_mod_data_obj_meta_op(
         }
     }
 
-    mode = 0;
-    if ( getValByKey( _reg_param, ALL_REPL_STATUS_KW ) ) {
-        mode = 1;
-        /* mark this one as NEWLY_CREATED_COPY and others as OLD_COPY */
-    }
-
     std::string zone;
     ret = getLocalZone(
               _ctx.prop_map(),
@@ -2415,57 +2422,63 @@ irods::error db_mod_data_obj_meta_op(
         return PASS( ret );
     }
 
-    // If we are moving the data object from one resource to another resource, update the object counts for those resources
-    // appropriately - hcj
-    char* new_resc_hier = getValByKey( _reg_param, RESC_HIER_STR_KW );
-    if ( new_resc_hier != NULL ) {
-        std::stringstream id_stream;
-        id_stream << _data_obj_info->dataId;
-        std::stringstream repl_stream;
-        repl_stream << _data_obj_info->replNum;
-        rodsLong_t resc_id = 0;
-        {
-            std::vector<std::string> bindVars;
-            bindVars.push_back( id_stream.str() );
-            bindVars.push_back( repl_stream.str() );
-            status = cmlGetIntegerValueFromSql(
-                         "select resc_id from R_DATA_MAIN where data_id=? and data_repl_num=?",
-                         &resc_id, bindVars, &icss );
-        }
-        if ( status != 0 ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to get the resc hierarchy from object with id: ";
-            msg << id_stream.str();
-            msg << " and replNum: ";
-            msg << repl_stream.str();
-            irods::log( LOG_NOTICE, msg.str() );
-            return ERROR(
-                       status,
-                       msg.str() );
-        }
-
-    }
-
-    if ( mode == 0 ) {
+    if (!getValByKey(_reg_param, ALL_REPL_STATUS_KW)) {
         if ( logSQL != 0 ) {
             rodsLog( LOG_SQL, "chlModDataObjMeta SQL 4" );
         }
         status = cmlModifySingleTable(
-                     "R_DATA_MAIN",
-                     &( updateCols[0] ),
-                     &( updateVals[0] ),
-                     whereColsAndConds,
-                     whereValues,
-                     upCols,
-                     numConditions,
-                     &icss );
+                "R_DATA_MAIN",
+                &( updateCols[0] ),
+                &( updateVals[0] ),
+                whereColsAndConds,
+                whereValues,
+                upCols,
+                numConditions,
+                &icss );
+
+        // Stale intermediate replicas
+        if (0 == status && getValByKey(_reg_param, STALE_ALL_INTERMEDIATE_REPLICAS_KW)) {
+            // Exclude this replica
+            j = numConditions - 1;
+            whereColsAndConds[j] = "data_repl_num!=";
+            snprintf( replNum1, MAX_NAME_LEN, "%d", _data_obj_info->replNum );
+            whereValues[j] = replNum1;
+
+            // Find all intermediate replicas
+            j = numConditions;
+            whereColsAndConds[j] = "data_is_dirty=";
+            whereValues[j] = std::to_string(INTERMEDIATE_REPLICA).c_str();
+            numConditions++;
+
+            // And mark them stale
+            updateCols[0] = "data_is_dirty";
+            memset(replica_status_string, 0, NAME_LEN);
+            snprintf(replica_status_string, NAME_LEN, "%d", STALE_REPLICA);
+            updateVals[0] = replica_status_string;
+            if ( logSQL != 0 ) {
+                rodsLog( LOG_SQL, "chlModDataObjMeta SQL 6" );
+            }
+            status2 = cmlModifySingleTable( "R_DATA_MAIN", &( updateCols[0] ), &( updateVals[0] ),
+                    whereColsAndConds, whereValues, 1,
+                    numConditions, &icss );
+
+            if ( status2 != 0 && status2 != CAT_SUCCESS_BUT_WITH_NO_INFO ) {
+                /* Ignore NO_INFO errors but not others */
+                rodsLog( LOG_NOTICE,
+                        "chlModDataObjMeta cmlModifySingleTable failure for other replicas %d",
+                        status2 );
+                _rollback( "chlModDataObjMeta" );
+                return ERROR(
+                        status2,
+                        "cmlModifySingleTable failure for other replicas" );
+            }
+        }
     }
     else {
-        /* mark this one as NEWLY_CREATED_COPY and others as OLD_COPY */
+        /* mark this one as GOOD_REPLICA and others as STALE_REPLICA */
         updateCols.push_back( "data_is_dirty" );
-        snprintf( newCopy, NAME_LEN, "%d", NEWLY_CREATED_COPY );
-        updateVals.push_back( newCopy );
+        snprintf(replica_status_string, NAME_LEN, "%d", GOOD_REPLICA);
+        updateVals.push_back(replica_status_string);
         upCols++;
         if ( logSQL != 0 ) {
             rodsLog( LOG_SQL, "chlModDataObjMeta SQL 5" );
@@ -2479,15 +2492,24 @@ irods::error db_mod_data_obj_meta_op(
                      upCols,
                      numConditions,
                      &icss );
+
         if ( status == 0 ) {
             j = numConditions - 1;
             whereColsAndConds[j] = "data_repl_num!=";
             snprintf( replNum1, MAX_NAME_LEN, "%d", _data_obj_info->replNum );
             whereValues[j] = replNum1;
 
+            // Only update replicas already marked as good
+            // Intermediate replicas were never good, so they cannot be stale.
+            j = numConditions;
+            whereColsAndConds[j] = "data_is_dirty!=";
+            whereValues[j] = std::to_string(INTERMEDIATE_REPLICA).c_str();
+            numConditions++;
+
             updateCols[0] = "data_is_dirty";
-            snprintf( oldCopy, NAME_LEN, "%d", OLD_COPY );
-            updateVals[0] = oldCopy;
+            memset(replica_status_string, 0, NAME_LEN);
+            snprintf(replica_status_string, NAME_LEN, "%d", STALE_REPLICA);
+            updateVals[0] = replica_status_string;
             if ( logSQL != 0 ) {
                 rodsLog( LOG_SQL, "chlModDataObjMeta SQL 6" );
             }
@@ -3071,7 +3093,6 @@ irods::error db_unreg_replica_op(
     char tSQL[MAX_SQL_SIZE];
     char replNumber[30];
     char dataObjNumber[30];
-    char cVal[MAX_NAME_LEN];
     int adminMode;
     int trashMode;
     char *theVal;
@@ -3143,26 +3164,8 @@ irods::error db_unreg_replica_op(
         }
         else {
             if ( _data_obj_info->replNum >= 0 && _data_obj_info->dataId >= 0 ) {
-                /* Check for a different replica */
                 snprintf( dataObjNumber, sizeof dataObjNumber, "%lld",
                           _data_obj_info->dataId );
-                snprintf( replNumber, sizeof replNumber, "%d", _data_obj_info->replNum );
-                if ( logSQL != 0 ) {
-                    rodsLog( LOG_SQL, "chlUnregDataObj SQL 2" );
-                }
-                {
-                    std::vector<std::string> bindVars;
-                    bindVars.push_back( dataObjNumber );
-                    bindVars.push_back( replNumber );
-                    status = cmlGetStringValueFromSql(
-                                 "select data_repl_num from R_DATA_MAIN where data_id=? and data_repl_num!=?",
-                                 cVal, sizeof cVal, bindVars, &icss );
-                }
-                if ( status != 0 ) {
-                    addRErrorMsg( &_ctx.comm()->rError, 0,
-                                  "This is the last replica, removal by admin not allowed" );
-                    return ERROR( CAT_LAST_REPLICA, "This is the last replica, removal by admin not allowed" );
-                }
             }
             else {
                 addRErrorMsg( &_ctx.comm()->rError, 0,
@@ -13619,12 +13622,30 @@ irods::error db_get_repl_list_for_leaf_bundles_op(
     } // for idx
 
     std::string not_child_array = not_child_stream.str();
+    if (not_child_array.empty()) {
+        return SUCCESS();
+    }
     not_child_array.pop_back(); // trim last ','
 
 #ifdef ORA_ICAT
     const std::string query = (boost::format("select data_id from (select distinct data_id from R_DATA_MAIN where data_id in (select data_id from R_DATA_MAIN where resc_id in (%s)) and data_id not in (select data_id from R_DATA_MAIN where resc_id in (%s)) and modify_ts <= '%s') where rownum <= %d") % not_child_array % child_array % _invocation_timestamp->c_str() % _count).str();
+#elif MY_ICAT
+    /* MySQL (MariaDB doesn't get 'except' until v10.3)*/
+    const std::string query = (boost::format(
+        "select distinct data_id from R_DATA_MAIN "
+        "  where resc_id in (%s) and data_id not in ( "
+        "    select data_id from R_DATA_MAIN "
+        "      where resc_id in (%s) "
+        "  ) and modify_ts <= '%s' limit %d") % not_child_array % child_array % _invocation_timestamp->c_str() % _count).str();
 #else
-    const std::string query = (boost::format("select distinct data_id from R_DATA_MAIN where data_id in (select data_id from R_DATA_MAIN where resc_id in (%s)) and data_id not in (select data_id from R_DATA_MAIN where resc_id in (%s)) and modify_ts <= '%s' limit %d") % not_child_array % child_array % _invocation_timestamp->c_str() % _count).str();
+    /* Postgres */
+    const std::string query = (boost::format(
+        "select distinct data_id from R_DATA_MAIN "
+        "  where resc_id in (%s) and modify_ts <= '%s' "
+        "except "
+        "  select data_id from R_DATA_MAIN "
+        "    where resc_id in (%s) "
+        "limit %d") % not_child_array % _invocation_timestamp->c_str() % child_array % _count).str();
 #endif
 
     _results->reserve(_count);

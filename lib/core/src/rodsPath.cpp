@@ -27,7 +27,7 @@
  */
 
 int
-parseRodsPathStr( char *inPath, rodsEnv *myRodsEnv, char *outPath ) {
+parseRodsPathStr( const char *inPath, rodsEnv *myRodsEnv, char *outPath ) {
     int status;
     rodsPath_t rodsPath;
 
@@ -516,5 +516,61 @@ char* escape_path(const char* _path)
     std::strcpy(escaped_path_c_str, escaped_path.c_str());
 
     return escaped_path_c_str;
+}
+
+int has_trailing_path_separator(const char* path)
+{
+    if (std::string_view p = path; !p.empty()) {
+        namespace fs = irods::experimental::filesystem;
+        return *std::rbegin(p) == fs::path::preferred_separator;
+    }
+
+    return 0;
+}
+
+void remove_trailing_path_separators(char* path)
+{
+    if (!path) {
+        return;
+    }
+
+    namespace fs = irods::experimental::filesystem;
+
+    const fs::path p = path;
+
+    // If the last path element is not empty, then the path does not
+    // end with trailing slashes.
+    if (!std::rbegin(p)->empty()) {
+        return;
+    }
+
+    fs::path new_p;
+
+    for (auto iter = std::begin(p), end = std::prev(std::end(p)); iter != end; ++iter) {
+        new_p /= *iter;
+    }
+
+    std::strcpy(path, new_p.c_str());
+}
+
+int has_prefix(const char* path, const char* prefix)
+{
+    namespace fs = irods::experimental::filesystem;
+
+    const fs::path parent = prefix;
+    const fs::path child = path;
+
+    if (parent == child) {
+        return false;
+    }
+
+    auto p_iter = std::begin(parent);
+    auto p_last = std::end(parent);
+    auto c_iter = std::begin(child);
+    auto c_last = std::end(child);
+
+    for (; p_iter != p_last && c_iter != c_last && *p_iter == *c_iter; ++p_iter, ++c_iter);
+
+    return (p_iter == p_last);
 }
 

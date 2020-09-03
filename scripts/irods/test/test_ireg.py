@@ -84,15 +84,21 @@ class Test_Ireg(resource_suite.ResourceBase, unittest.TestCase):
     def test_ireg_inconsistent_replica__3829(self):
         filename = 'regfile.txt'
         filename2 = filename+'2'
-        os.system('rm -f {0} {1}'.format(filename, filename2))
-        lib.make_file(filename, 234)
-        lib.make_file(filename2, 468)
-        self.admin.assert_icommand('ireg -Kk -R {0} {1} {2}'.format(self.testresc, os.path.abspath(filename), self.admin.session_collection+'/'+filename))
-        self.admin.assert_icommand('ils -L', 'STDOUT_SINGLELINE', [' 0 '+self.testresc, '& '+filename])
-        self.admin.assert_icommand('ireg -Kk --repl -R {0} {1} {2}'.format(self.anotherresc, os.path.abspath(filename2), self.admin.session_collection+'/'+filename))
-        self.admin.assert_icommand('ils -L', 'STDOUT_SINGLELINE', [' 0 '+self.testresc, '234', filename])
-        self.admin.assert_icommand('ils -L', 'STDOUT_SINGLELINE', [' 1 '+self.anotherresc, '468', '& '+filename])
-        os.system('rm -f {0} {1}'.format(filename, filename2))
+        try:
+            lib.make_file(filename, 234)
+            lib.make_file(filename2, 468)
+            self.admin.assert_icommand(['ireg', '-K', '-k', '-R', self.testresc,
+                os.path.abspath(filename), os.path.join(self.admin.session_collection, filename)])
+            self.admin.assert_icommand(['ils', '-L'], 'STDOUT_SINGLELINE', [' 0 '+self.testresc, '& '+filename])
+            self.admin.assert_icommand(['ireg', '-K', '-k', '--repl', '-R', self.anotherresc,
+                os.path.abspath(filename2), os.path.join(self.admin.session_collection, filename)])
+            self.admin.assert_icommand(['ils', '-L'], 'STDOUT_SINGLELINE', [' 0 '+self.testresc, '234', 'X '+filename])
+            self.admin.assert_icommand(['ils', '-L'], 'STDOUT_SINGLELINE', [' 1 '+self.anotherresc, '468', '& '+filename])
+        finally:
+            if os.path.exists(filename):
+                os.unlink(filename)
+            if os.path.exists(filename2):
+                os.unlink(filename2)
 
     def test_ireg_dir_exclude_from(self):
         # test settings
@@ -147,15 +153,15 @@ class Test_Ireg(resource_suite.ResourceBase, unittest.TestCase):
         # lowercase k
         self.admin.assert_icommand('ireg -k -C {0} {1}'.format(os.path.abspath(thedirname), self.admin.session_collection+'/'+thedirname))
         self.admin.assert_icommand('ils -L {0}'.format(thedirname), 'STDOUT_SINGLELINE', ['sha2:XAs0B9+Xrk+wuByjAyCOXIyS7QzhM0KpZHwIJeWVOpw=', os.path.abspath(thedirname)])
-        self.admin.assert_icommand('irm -rU {0}'.format(thedirname))
+        self.admin.assert_icommand('iunreg -r {0}'.format(thedirname))
         # uppercase K
         self.admin.assert_icommand('ireg -K -C {0} {1}'.format(os.path.abspath(thedirname), self.admin.session_collection+'/'+thedirname))
         self.admin.assert_icommand('ils -L {0}'.format(thedirname), 'STDOUT_SINGLELINE', ['sha2:IMw+oWsNyQSCaoHslbpnvHCTWE1w3/1Vryz7kcStzKY=', os.path.abspath(thedirname)])
-        self.admin.assert_icommand('irm -rU {0}'.format(thedirname))
+        self.admin.assert_icommand('iunreg -r {0}'.format(thedirname))
         # both
         self.admin.assert_icommand('ireg -Kk -C {0} {1}'.format(os.path.abspath(thedirname), self.admin.session_collection+'/'+thedirname))
         self.admin.assert_icommand('ils -L {0}'.format(thedirname), 'STDOUT_SINGLELINE', ['sha2:k67r3aPVgq6JNOaM8nf/zMi0lBeVjb7g7Ei7cmtM10U=', os.path.abspath(thedirname)])
-        self.admin.assert_icommand('irm -rU {0}'.format(thedirname))
+        self.admin.assert_icommand('iunreg -r {0}'.format(thedirname))
         # cleanup
         os.system('rm -rf {0}'.format(thedirname))
 
@@ -216,6 +222,6 @@ class Test_Ireg(resource_suite.ResourceBase, unittest.TestCase):
         # attempt the ireg, should pass now that 4040 is fixed
         if os.path.isfile(fullpath):
             self.admin.assert_icommand('ireg {0} {1}'.format(fullpath, self.admin.session_collection+'/'+os.path.basename(filename)))
-            self.admin.assert_icommand('irm -U {0}'.format(self.admin.session_collection+'/'+os.path.basename(filename)))
+            self.admin.assert_icommand('iunreg {0}'.format(self.admin.session_collection+'/'+os.path.basename(filename)))
         else:
             print('ireg skipped, file not found [{0}]'.format(filename))

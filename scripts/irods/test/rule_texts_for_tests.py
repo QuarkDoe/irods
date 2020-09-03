@@ -74,9 +74,53 @@ acSetRescSchemeForCreate {
 }
 '''
 
+#===== Test_Icp  =====
+
+rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Icp'] = {}
+rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Icp']['test_icp_closes_file_descriptors__4862'] = '''
+acSetRescSchemeForCreate {
+}
+'''
+
 #===== Test_Native_Rule_Engine_Plugin  =====
 
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Native_Rule_Engine_Plugin'] = {}
+rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Native_Rule_Engine_Plugin']['test_error_smsi_5043'] = '''
+validate_error_and_state_smsi(*name,*error_int) {
+    *msg = "[general_failure]"
+    *error_int = 0
+    *status = errorcode( *error_i = error(*name) )
+    if (*status != 0) {
+        *msg = "BAD error() call"
+    }
+    else {
+        *status = errorcode( *state_i = state(*name) )
+        if (*status != 0) {
+            *msg = "BAD state() call"
+        }
+        else {
+            if ((*error_i < 0 && *error_i == -*state_i) ||
+                (*error_i > 0 && *error_i ==  *state_i))
+            {
+              *msg = ""
+              *error_int = *error_i
+            }
+        }
+    }
+    if (*msg != "") { writeLine('stderr', *msg) }
+}
+'''
+rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Native_Rule_Engine_Plugin']['test_error_smsi_5043__rule_file'] = '''
+test() {
+    *symbols = list("SYS_INTERNAL_ERR",
+                    "RULE_ENGINE_CONTINUE")
+    foreach (*sym in *symbols) {
+      validate_error_and_state_smsi (*sym, *error_int)
+      writeLine("stdout", "*sym = *error_int")
+    }
+}
+OUTPUT ruleExecOut
+'''
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Native_Rule_Engine_Plugin']['test_network_pep'] = '''
 pep_network_agent_start_pre(*INST,*CTX,*OUT) {
     *OUT = "THIS IS AN OUT VARIABLE"
@@ -161,6 +205,20 @@ test_msiSegFault {{
 OUTPUT ruleExecOut
 '''
 
+rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Native_Rule_Engine_Plugin']['test_failing_on_code_5043'] = '''
+fail_on_code(*name) {
+    fail( error(*name) )
+}
+'''
+rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Native_Rule_Engine_Plugin']['test_failing_on_code_5043__rule_file'] = '''
+main {
+  *Name = "SYS_NOT_SUPPORTED"
+  writeLine("stdout", errorcode( fail_on_code(*Name) ) == error( *Name  ))
+}
+OUTPUT ruleExecOut
+'''
+
+
 #===== Test_Quotas =====
 
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Quotas'] = {}
@@ -174,7 +232,7 @@ acRescQuotaPolicy {
 
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Resource_Compound'] = {}
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Resource_Compound']['test_msiDataObjRsync__2976'] = '''
-test_msiDataObjRepl {{
+test_msiDataObjRsync {{
     *err = errormsg( msiDataObjRsync(*SourceFile,"IRODS_TO_IRODS",*Resource,*DestFile,*status), *msg );
     if( 0 != *err ) {{
         writeLine( "stdout", "*err - *msg" );
@@ -325,20 +383,20 @@ replicateMultiple(*destRgStr) {
     writeLine("serverLog", " acPostProcForPut multiple replicate $objPath $filePath -> *destRgStr");
     foreach (*destRg in *destRgList) {
         writeLine("serverLog", " acPostProcForPut replicate $objPath $filePath -> *destRg");
-        *e = errorcode(msiSysReplDataObj(*destRg,"null"));
-        if (*e != 0) {
-            if(*e == -808000) {
+        *err = errormsg(msiDataObjRepl($objPath,"destRescName=*destRg++++irodsAdmin=",*Status), *msg );
+        if( 0 != *err ) {
+            if(*err == -808000) {
                 writeLine("serverLog", "$objPath cannot be found");
                 $status = 0;
                 succeed;
             } else {
-                fail(*e);
+                fail(*err);
             }
         }
     }
 }
 acPostProcForPut {
-    replicateMultiple( "r1, r2" )
+    replicateMultiple( "r1,r2" )
 }
 '''
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Rulebase']['test_dynamic_pep_with_rscomm_usage'] = '''
@@ -492,7 +550,7 @@ test_delay_queue_with_long_job {{
 OUTPUT ruleExecOut
 '''
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Delay_Queue']['test_delay_queue_connection_refresh'] = '''
-test_delay_queue_with_long_job {{
+test_delay_queue_connection_refresh {{
     delay("<PLUSET>0.1s</PLUSET>") {{
         writeLine("serverLog", "sleep 1...");
         msiSleep("{sleep_time}", "0");
@@ -508,7 +566,7 @@ OUTPUT ruleExecOut
 '''
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Delay_Queue']['test_failed_delay_job'] = '''
 test_delay_with_output_param {{
-    delay("<PLUSET>0.1s</PLUSET>") {{
+    delay("<PLUSET>0.1s</PLUSET><INST_NAME>irods_rule_engine_plugin-irods_rule_language-instance</INST_NAME>") {{
         writeLine("serverLog", "We are about to fail...");
         msiGoodFailure();
         writeLine("serverLog", "You should never see this line.");
@@ -519,12 +577,12 @@ OUTPUT ruleExecOut
 '''
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Delay_Queue']['test_sigpipe_in_delay_server'] = '''
 test_sigpipe_in_delay_server {{
-    delay("<PLUSET>0.1s</PLUSET>") {{
+    delay("<PLUSET>0.1s</PLUSET><INST_NAME>irods_rule_engine_plugin-irods_rule_language-instance</INST_NAME>") {{
         writeLine("serverLog", "We are about to segfault...");
         msiSegFault();
         writeLine("serverLog", "You should never see this line.");
     }}
-    delay("<PLUSET>{longer_delay_time}s</PLUSET>") {{
+    delay("<PLUSET>{longer_delay_time}s</PLUSET><INST_NAME>irods_rule_engine_plugin-irods_rule_language-instance</INST_NAME>") {{
         writeLine("serverLog", "Follow-up rule executed later!");
     }}
     writeLine("stdout", "rule queued");
@@ -533,12 +591,12 @@ OUTPUT ruleExecOut
 '''
 rule_texts['irods_rule_engine_plugin-irods_rule_language']['Test_Delay_Queue']['test_exception_in_delay_server'] = '''
 test_exception_in_delay_server {{
-    delay("<PLUSET>0.1s</PLUSET>") {{
+    delay("<PLUSET>0.1s</PLUSET><INST_NAME>irods_rule_engine_plugin-irods_rule_language-instance</INST_NAME>") {{
         writeLine("serverLog", "Sleeping now...");
         msiSleep("{sleep_time}", "0");
         msiSegFault();
     }}
-    delay("<PLUSET>{longer_delay_time}s</PLUSET>") {{
+    delay("<PLUSET>{longer_delay_time}s</PLUSET><INST_NAME>irods_rule_engine_plugin-irods_rule_language-instance</INST_NAME>") {{
         writeLine("serverLog", "Follow-up rule executed later!");
     }}
 }}
@@ -602,6 +660,12 @@ def pep_resource_create_post(rule_args,callback,rei):
     callback.writeLine("serverLog","proxy_user_name=" + d["proxy_user_name"] + " ")
 '''
 
+rule_texts['irods_rule_engine_plugin-python']['Test_ICommands_File_Operations'] ['test_re_serialization__prep_55'] = '''
+def pep_api_data_obj_put_post(rule_args,callback,rei):
+    d = rule_args[1].map()
+    callback.writeLine("serverLog","user_rods_zone="   + d["user_rods_zone"]   + " ")    # write out a variable from pluginContext
+'''
+
 rule_texts['irods_rule_engine_plugin-python']['Test_ICommands_File_Operations'] ['test_delay_in_dynamic_pep__3342'] = ''' 
 def pep_resource_write_post(rule_args, callback, rei):
     callback.delayExec('<PLUSET>1s</PLUSET>', 'callback.writeLine("serverLog", "dynamic pep in delay")', '')
@@ -625,6 +689,14 @@ def acSetRescSchemeForCreate(rule_args, callback, rei):
 rule_texts['irods_rule_engine_plugin-python']['Test_ICommands_File_Operations'] ['test_iput_resc_scheme_null'] = ''' 
 def acSetRescSchemeForCreate(rule_args, callback, rei): 
     callback.msiSetDefaultResc('demoResc','null');
+'''
+
+#===== Test_Icp  =====
+
+rule_texts['irods_rule_engine_plugin-python']['Test_Icp'] = {}
+rule_texts['irods_rule_engine_plugin-python']['Test_Icp']['test_icp_closes_file_descriptors__4862'] = '''
+def acSetRescSchemeForCreate(rule_args, callback, rei): 
+    pass
 '''
 
 #===== Test_Native_Rule_Engine_Plugin  =====
@@ -862,7 +934,7 @@ def replicateMultiple(dest_list, callback, rei):
     callback.writeLine('serverLog', ' acPostProcForPut multiple replicate ' + obj_path + ' ' + filepath + ' -> ' + str(dest_list))
     for dest in dest_list:
         callback.writeLine('serverLog', 'acPostProcForPut replicate ' + obj_path + ' ' + filepath + ' -> ' + dest)
-        out_dict = callback.msiSysReplDataObj(dest, 'null')
+        out_dict = callback.msiDataObjRepl(obj_path,"destRescName=' + dest '++++irodsAdmin='", 0);
         if not out_dict['code'] == 0:
             if out_dict['code'] == -808000:
                 callback.writeLine('serverLog', obj_path + ' cannot be found')

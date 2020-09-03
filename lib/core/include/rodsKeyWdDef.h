@@ -22,6 +22,7 @@
 #define DEST_RESC_NAME_KW	"destRescName"	/* destination resource name */
 #define DEF_RESC_NAME_KW	"defRescName"	/* default resource name */
 #define BACKUP_RESC_NAME_KW "backupRescName" /* destination resource name */
+#define LEAF_RESOURCE_NAME_KW "leafRescName"
 #define DATA_TYPE_KW	"dataType"	/* data type */
 #define DATA_SIZE_KW	"dataSize"
 #define CHKSUM_KW	"chksum"
@@ -50,6 +51,7 @@
 #define DATA_ID_KW     "dataId"
 #define COLL_ID_KW     "collId"
 #define DATA_MODE_KW   "dataMode"
+#define DATA_NAME_KW            "data_name"
 #define STATUS_STRING_KW     "statusString"
 #define DATA_MAP_ID_KW    "dataMapId"
 #define NO_PARA_OP_KW    "noParaOpr"
@@ -81,8 +83,7 @@
 #define ZONE_KW    		"zone"
 #define REMOTE_ZONE_OPR_KW    	"remoteZoneOpr"
 #define REPL_DATA_OBJ_INP_KW   	"replDataObjInp"
-#define CROSS_ZONE_CREATE_KW   	"replDataObjInp"  /* use the same for backward
-* compatibility */
+#define CROSS_ZONE_CREATE_KW   	"replDataObjInp"  /* use the same for backward compatibility */
 #define VERIFY_VAULT_SIZE_EQUALS_DATABASE_SIZE_KW    "verifyVaultSizeEqualsDatabaseSize"
 #define QUERY_BY_DATA_ID_KW   	"queryByDataID"
 #define SU_CLIENT_USER_KW   	"suClientUser"
@@ -115,6 +116,10 @@
 #define PURGE_CACHE_KW         "purgeCache"    /* purge the cache copy right JMC - backport 4537
 * after the operation */
 #define EMPTY_BUNDLE_ONLY_KW   "emptyBundleOnly" /* delete emptyBundleOnly */ // JMC - backport 4552
+#define REPLICA_TOKEN_KW       "replicaToken"
+
+#define REGISTER_AS_INTERMEDIATE_KW "registerAsIntermediate"
+#define STALE_ALL_INTERMEDIATE_REPLICAS_KW  "staleAllIntermediateReplicas"
 
 // =-=-=-=-=-=-=-
 // JMC - backport 4599

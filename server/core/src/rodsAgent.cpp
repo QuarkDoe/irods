@@ -33,13 +33,20 @@
 #include "irods_at_scope_exit.hpp"
 #include "procLog.h"
 #include "initServer.hpp"
+#include "replica_access_table.hpp"
 
 #include "sockCommNetworkInterface.hpp"
 #include "sslSockComm.h"
 
+#include "plugin_lifetime_manager.hpp"
+
 #include "sys/socket.h"
 #include "sys/un.h"
 #include "sys/wait.h"
+
+#include <memory>
+
+namespace ix = irods::experimental;
 
 ssize_t receiveSocketFromSocket( int readFd, int *socket) {
     struct msghdr msg;
@@ -271,7 +278,11 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
             } else {
                 rodsLog( LOG_ERROR, "Agent process [%d] terminated with unusual status [%d]", reaped_pid, child_status );
             }
+
             rmProcLog( reaped_pid );
+
+            ix::log::agent_factory::trace("Removing agent PID [{}] from replica access table ...", reaped_pid);
+            ix::replica_access_table::instance().erase_pid(reaped_pid);
         }
 
         fd_set read_socket;
@@ -388,7 +399,7 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
                 log::network::set_level(log::get_level_from_config(irods::CFG_LOG_LEVEL_CATEGORY_NETWORK_KW));
                 log::rule_engine::set_level(log::get_level_from_config(irods::CFG_LOG_LEVEL_CATEGORY_RULE_ENGINE_KW));
 
-                log::agent::info("I'm an agent!");
+                log::agent::trace("Agent started.");
 
                 irods::error ret2 = setRECacheSaltFromEnv();
                 if ( !ret2.ok() ) {
@@ -461,10 +472,7 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
     // load server side pluggable api entries
     irods::api_entry_table&  RsApiTable   = irods::get_server_api_table();
     irods::pack_entry_table& ApiPackTable = irods::get_pack_table();
-    ret = irods::init_api_table(
-              RsApiTable,
-              ApiPackTable,
-              false );
+    ret = irods::init_api_table(RsApiTable, ApiPackTable, false);
     if ( !ret.ok() ) {
         irods::log( PASS( ret ) );
         return 1;
@@ -472,11 +480,8 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
 
     // =-=-=-=-=-=-=-
     // load client side pluggable api entries
-    irods::api_entry_table&  RcApiTable = irods::get_client_api_table();
-    ret = irods::init_api_table(
-              RcApiTable,
-              ApiPackTable,
-              false );
+    irods::api_entry_table& RcApiTable = irods::get_client_api_table();
+    ret = irods::init_api_table(RcApiTable, ApiPackTable, false);
     if ( !ret.ok() ) {
         irods::log( PASS( ret ) );
         return 1;
@@ -664,6 +669,8 @@ int agentMain( rsComm_t *rsComm )
             }
         }
     }
+
+    irods::experimental::api::plugin_lifetime_manager::destroy();
 
     if ( !result.ok() ) {
         irods::log( result );
