@@ -140,6 +140,7 @@ class ResourceSuite(ResourceBase):
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)  # replicate file
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # debugging
         # force new put on second resource
         self.admin.assert_icommand("iput -f -R " + self.testresc + " " + updated_filename + " " + filename)
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # debugging
@@ -164,7 +165,7 @@ class ResourceSuite(ResourceBase):
         # assertions
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("iget -f --purgec " + filename)  # get file
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # get file
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # should be listed once
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed only once
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
@@ -267,7 +268,7 @@ class ResourceSuite(ResourceBase):
         lib.touch("file.txt")
         for i in range(0, 100):
             self.user0.assert_icommand("iput file.txt " + str(i) + ".txt", "EMPTY")
-        self.admin.assert_icommand("iphymv -r -M -R " + self.testresc + " " + self.admin.session_collection)  # creates replica
+        self.admin.assert_icommand("iphymv -r -M -n0 -R " + self.testresc + " " + self.admin.session_collection)  # creates replica
 
     ###################
     # iput
@@ -519,6 +520,7 @@ class ResourceSuite(ResourceBase):
         if os.path.exists(datafilename):
             os.unlink(datafilename)
 
+    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Needs investigation refer issue 4932")
     def test_local_iput_physicalpath(self):
         # local setup
         datafilename = "newfile.txt"
@@ -532,6 +534,8 @@ class ResourceSuite(ResourceBase):
         # local cleanup
         if os.path.exists(datafilename):
             os.unlink(datafilename)
+        if os.path.exists(fullpath):
+            os.unlink(fullpath)
 
     def test_admin_local_iput_relative_physicalpath_into_server_bin(self):
         # local setup
@@ -611,16 +615,23 @@ class ResourceSuite(ResourceBase):
         with open(filepath, 'wt') as f:
             print("TESTFILE -- [" + filepath + "]", file=f, end='')
 
-        # assertions
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
-        self.admin.assert_icommand("iput --purgec " + filename)  # put file
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # should be listed once
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed only once
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+        try:
+            self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
+            self.admin.assert_icommand("iput --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # should be listed once
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed only once
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+            self.admin.assert_icommand(['irm', '-f', filename])
 
-        # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+            self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
+            self.admin.assert_icommand(['iput', '-b', '--purgec', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file... in bulk!
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # should be listed once
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed only once
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+
+        finally:
+            if os.path.exists(filepath):
+                os.unlink(filepath)
 
     def test_local_iput_with_force_and_destination_resource__ticket_1706(self):
         # local setup
@@ -804,7 +815,7 @@ class ResourceSuite(ResourceBase):
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -815,7 +826,7 @@ class ResourceSuite(ResourceBase):
         # should have a clean copy
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -aU " + filename)                                # update all replicas
+        self.admin.assert_icommand("irepl -a " + filename)                                # update all replicas
 
         # should have a clean copy
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -927,7 +938,7 @@ class ResourceSuite(ResourceBase):
         # assertions
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)  # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # should be trimmed
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])  # should be listed once
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
@@ -1041,7 +1052,7 @@ class ResourceSuite(ResourceBase):
     ###################
 
     def test_itrim_with_admin_mode(self):
-        lib.touch("file.txt")
+        lib.make_file("file.txt", 0)
         for i in range(100):
             self.user0.assert_icommand("iput file.txt " + str(i) + ".txt", "EMPTY")
 

@@ -1,25 +1,17 @@
 #include "filesystem/recursive_collection_iterator.hpp"
 
-#include "filesystem/filesystem_error.hpp"
-
-#include <iostream>
-
-namespace irods {
-namespace experimental {
-namespace filesystem {
-namespace NAMESPACE_IMPL {
-
+namespace irods::experimental::filesystem::NAMESPACE_IMPL
+{
     // Constructors and destructor
 
     recursive_collection_iterator::recursive_collection_iterator(rxComm& _comm,
                                                                  const path& _p,
                                                                  collection_options _opts)
-        : ctx_{std::make_shared<context>()}
+        : ctx_{}
     {
-        ctx_->stack.emplace(_comm, _p, _opts);
-
-        if (ctx_->stack.empty()) {
-            throw filesystem_error{"construction error"};
+        if (collection_iterator iter{_comm, _p, _opts}; collection_iterator{} != iter) {
+            ctx_.reset(new context{});
+            ctx_->stack.push(std::move(iter));
         }
     }
 
@@ -32,8 +24,7 @@ namespace NAMESPACE_IMPL {
 
         if (iter->is_collection() && ctx_->recurse) {
             // Add the collection to the stack only if it is not empty.
-            if (!is_empty(*iter.connection(), iter->path()))
-            {
+            if (!is_empty(*iter.connection(), iter->path())) {
                 added_new_collection = true;
                 auto* conn = iter.connection();
                 auto path = std::move(iter->path());
@@ -78,8 +69,5 @@ namespace NAMESPACE_IMPL {
         ctx_->stack.pop();
     }
 
-} // namespace NAMESPACE_IMPL
-} // namespace filesystem
-} // namespace experimental
-} // namespace irods
+} // namespace irods::experimental::filesystem::NAMESPACE_IMPL
 

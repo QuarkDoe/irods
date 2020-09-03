@@ -32,6 +32,7 @@
 #include "irods_re_serialization.hpp"
 #include "procLog.h"
 #include "initServer.hpp"
+#include "replica_access_table.hpp"
 
 #include "sockCommNetworkInterface.hpp"
 #include "sslSockComm.h"
@@ -39,6 +40,10 @@
 #include "sys/socket.h"
 #include "sys/un.h"
 #include "sys/wait.h"
+
+#include <memory>
+
+namespace ix = irods::experimental;
 
 ssize_t receiveSocketFromSocket( int readFd, int *socket) {
     struct msghdr msg;
@@ -265,7 +270,11 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
             } else {
                 rodsLog( LOG_ERROR, "Agent process [%d] terminated with unusual status [%d]", reaped_pid, child_status );
             }
+
             rmProcLog( reaped_pid );
+
+            rodsLog(LOG_DEBUG, "Removing agent PID [%d] from replica access table ...", reaped_pid);
+            ix::replica_access_table::instance().erase_pid(reaped_pid);
         }
 
         fd_set read_socket;
@@ -432,10 +441,7 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
     // load server side pluggable api entries
     irods::api_entry_table&  RsApiTable   = irods::get_server_api_table();
     irods::pack_entry_table& ApiPackTable = irods::get_pack_table();
-    ret = irods::init_api_table(
-              RsApiTable,
-              ApiPackTable,
-              false );
+    ret = irods::init_api_table(RsApiTable, ApiPackTable, false);
     if ( !ret.ok() ) {
         irods::log( PASS( ret ) );
         return 1;
@@ -443,11 +449,8 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
 
     // =-=-=-=-=-=-=-
     // load client side pluggable api entries
-    irods::api_entry_table&  RcApiTable = irods::get_client_api_table();
-    ret = irods::init_api_table(
-              RcApiTable,
-              ApiPackTable,
-              false );
+    irods::api_entry_table& RcApiTable = irods::get_client_api_table();
+    ret = irods::init_api_table(RcApiTable, ApiPackTable, false);
     if ( !ret.ok() ) {
         irods::log( PASS( ret ) );
         return 1;

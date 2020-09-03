@@ -2,12 +2,10 @@
 
 #include "filesystem/path.hpp"
 #include "filesystem/collection_iterator.hpp"
-#include "filesystem/filesystem_error.hpp"
-#include "filesystem/detail.hpp"
 
 // clang-format off
 #ifdef IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
-    #define RODS_SERVER
+    #define IRODS_QUERY_ENABLE_SERVER_SIDE_API
 
     #include "rods.h"
     #include "apiHeaderAll.h"
@@ -42,7 +40,7 @@
     #include "modColl.h"
     #include "rmColl.h"
     #include "modAVUMetadata.h"
-    #include "modDataObjMeta.h"
+    #include "data_object_modify_info.h"
 #endif // IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
 // clang-format on
 
@@ -57,6 +55,8 @@
 
 #include <boost/optional.hpp>
 
+#include "fmt/format.h"
+
 #include <cctype>
 #include <cstring>
 #include <string>
@@ -66,13 +66,12 @@
 #include <iomanip>
 #include <algorithm>
 
-namespace irods {
-namespace experimental {
-namespace filesystem {
-namespace NAMESPACE_IMPL {
-
+namespace irods::experimental::filesystem::NAMESPACE_IMPL
+{
     namespace
     {
+        using detail::make_error_code;
+
 #ifdef IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
         int rsDataObjCopy(rsComm_t* _comm, dataObjCopyInp_t* _dataObjCopyInp)
         {
@@ -96,11 +95,6 @@ namespace NAMESPACE_IMPL {
             return ::rsRmColl(_comm, _rmCollInp, &stat);
         };
 #endif // IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
-
-        auto make_error_code(int _ec) -> std::error_code
-        {
-            return {_ec, std::system_category()};
-        }
 
         struct stat
         {
@@ -146,7 +140,8 @@ namespace NAMESPACE_IMPL {
         auto set_permissions(rxComm& _comm, const path& _p, stat& _s) -> void
         {
             if (DATA_OBJ_T == _s.type) {
-                std::string sql = "select USER_NAME, DATA_ACCESS_NAME where COLL_NAME = '";
+                std::string sql = "select DATA_USER_NAME, DATA_ZONE_NAME, DATA_ACCESS_NAME, USER_TYPE "
+                                   "where COLL_NAME = '";
                 sql += _p.parent_path();
                 sql += "' and DATA_NAME = '";
                 sql += _p.object_name();
@@ -161,16 +156,11 @@ namespace NAMESPACE_IMPL {
                 }
 
                 for (const auto& row : qb.build(_comm, sql)) {
-                    _s.prms.push_back({row[0], to_permission_enum(row[1])});
+                    _s.prms.push_back({row[0], row[1], to_permission_enum(row[2]), row[3]});
                 }
             }
             else if (COLL_OBJ_T == _s.type) {
                 irods::experimental::query_builder qb;
-
-                std::vector<std::string> args{_p.string()};
-
-                qb.type(irods::experimental::query_type::specific)
-                  .bind_arguments(args);
 
                 const auto zone = get_zone_name(_p);
 
@@ -178,8 +168,34 @@ namespace NAMESPACE_IMPL {
                     qb.zone_hint(*zone);
                 }
 
-                for (const auto& row : qb.build(_comm, "ShowCollAcls")) {
-                    _s.prms.push_back({row[0], to_permission_enum(row[2])});
+                try {
+                    std::vector<std::string> args{_p.string()};
+
+                    qb.type(irods::experimental::query_type::specific)
+                      .bind_arguments(args);
+
+                    for (const auto& row : qb.build(_comm, "ShowCollAcls")) {
+                        _s.prms.push_back({row[0], row[1], to_permission_enum(row[2]), row[3]});
+                    }
+                }
+                catch (...) {
+                    // Fallback to GenQuery if the specific query fails (does not exist).
+                    //
+                    // In the case where the specific query, "ShowCollAcls", does not exist,
+                    // this implementation is required to fallback to GenQuery. The following
+                    // code does not require any information from the exception object, therefore
+                    // it is ignored.
+
+                    qb.type(irods::experimental::query_type::general);
+
+                    std::string sql = "select COLL_USER_NAME, COLL_ZONE_NAME, COLL_ACCESS_NAME, USER_TYPE "
+                                      "where COLL_TOKEN_NAMESPACE = 'access_type' and COLL_NAME = '";
+                    sql += _p.c_str();
+                    sql += "'";
+
+                    for (const auto& row : qb.build(_comm, sql)) {
+                        _s.prms.push_back({row[0], row[1], to_permission_enum(row[2]), row[3]});
+                    }
                 }
             }
         }
@@ -205,7 +221,7 @@ namespace NAMESPACE_IMPL {
                     s.mtime = std::stoll(output->modifyTime);
                 }
                 catch (...) {
-                    throw filesystem_error{"stat error: cannot convert string to integer", _p};
+                    throw filesystem_error{"stat error: cannot convert string to integer", _p, make_error_code(SYS_INTERNAL_ERR)};
                 }
 
                 s.size = output->objSize;
@@ -259,7 +275,7 @@ namespace NAMESPACE_IMPL {
 
             if (is_collection(s)) {
                 if (!_opts.recursive && !is_collection_empty(_comm, _p)) {
-                    throw filesystem_error{"cannot remove non-empty collection", _p};
+                    throw filesystem_error{"cannot remove non-empty collection", _p, make_error_code(SYS_COLLECTION_NOT_EMPTY)};
                 }
 
                 collInp_t input{};
@@ -278,14 +294,74 @@ namespace NAMESPACE_IMPL {
                 return rxRmColl(&_comm, &input, verbose) >= 0;
             }
 
-            throw filesystem_error{"cannot remove: unknown object type", _p};
+            throw filesystem_error{"cannot remove: unknown object type", _p, make_error_code(CAT_NOT_A_DATAOBJ_AND_NOT_A_COLLECTION)};
         }
 
         auto has_prefix(const path& _p, const path& _prefix) -> bool
         {
-            using std::begin;
-            using std::end;
-            return std::search(begin(_p), end(_p), begin(_prefix), end(_prefix)) != end(_p);
+            if (_p == _prefix) {
+                return false;
+            }
+
+            auto p_iter = std::begin(_prefix);
+            auto p_last = std::end(_prefix);
+            auto c_iter = std::begin(_p);
+            auto c_last = std::end(_p);
+
+            for (; p_iter != p_last && c_iter != c_last && *p_iter == *c_iter; ++p_iter, ++c_iter);
+
+            return (p_iter == p_last);
+        }
+
+        auto do_metadata_op(rxComm& _comm, const path& _p, const metadata& _metadata, std::string_view op) -> void
+        {
+            if (_p.empty()) {
+                throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
+            }
+
+            detail::throw_if_path_length_exceeds_limit(_p);
+
+            modAVUMetadataInp_t input{};
+
+            char* command = const_cast<char*>(op.data());
+            input.arg0 = command;
+
+            char type[3]{};
+
+            if (const auto s = status(_comm, _p); is_data_object(s)) {
+                std::strncpy(type, "-d", std::strlen("-d"));
+            }
+            else if (is_collection(s)) {
+                std::strncpy(type, "-C", std::strlen("-C"));
+            }
+            else {
+                std::string_view op_full_name = (op == "rm") ? "remove" : op;
+                throw filesystem_error{fmt::format("cannot {} metadata: unknown object type", op_full_name), _p,
+                                       make_error_code(CAT_NOT_A_DATAOBJ_AND_NOT_A_COLLECTION)};
+            }
+
+            input.arg1 = type;
+
+            char path_buf[MAX_NAME_LEN]{};
+            std::strncpy(path_buf, _p.c_str(), std::strlen(_p.c_str()));
+            input.arg2 = path_buf;
+
+            char attr_buf[MAX_NAME_LEN]{};
+            std::strncpy(attr_buf, _metadata.attribute.c_str(), _metadata.attribute.size());
+            input.arg3 = attr_buf;
+
+            char value_buf[MAX_NAME_LEN]{};
+            std::strncpy(value_buf, _metadata.value.c_str(), _metadata.value.size());
+            input.arg4 = value_buf;
+
+            char units_buf[MAX_NAME_LEN]{};
+            std::strncpy(units_buf, _metadata.units.c_str(), _metadata.units.size());
+            input.arg5 = units_buf;
+
+            if (const auto ec = rxModAVUMetadata(&_comm, &input); ec != 0) {
+                std::string_view op_full_name = (op == "rm") ? "remove" : op;
+                throw filesystem_error{fmt::format("cannot {} metadata", op_full_name), _p, make_error_code(ec)};
+            }
         }
     } // anonymous namespace
 
@@ -296,25 +372,25 @@ namespace NAMESPACE_IMPL {
         const auto from_status = status(_comm, _from);
 
         if (!exists(from_status)) {
-            throw filesystem_error{"path does not exist", _from};
+            throw filesystem_error{"path does not exist", _from, make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
         }
 
         const auto to_status = status(_comm, _to);
 
         if (exists(to_status) && equivalent(_comm, _from, _to)) {
-            throw filesystem_error{"paths cannot point to the same object", _from, _to};
+            throw filesystem_error{"paths cannot point to the same object", _from, _to, make_error_code(SAME_SRC_DEST_PATHS_ERR)};
         }
 
         if (is_other(from_status)) {
-            throw filesystem_error{"cannot copy: unknown object type", _from};
+            throw filesystem_error{"cannot copy: unknown object type", _from, make_error_code(CAT_NOT_A_DATAOBJ_AND_NOT_A_COLLECTION)};
         }
 
         if (is_other(to_status)) {
-            throw filesystem_error{"cannot copy: unknown object type", _to};
+            throw filesystem_error{"cannot copy: unknown object type", _to, make_error_code(CAT_NOT_A_DATAOBJ_AND_NOT_A_COLLECTION)};
         }
 
         if (is_collection(from_status) && is_data_object(to_status)) {
-            throw filesystem_error{"cannot copy a collection into a data object", _from, _to};
+            throw filesystem_error{"cannot copy a collection into a data object", _from, _to, make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
         if (is_data_object(from_status)) {
@@ -335,7 +411,7 @@ namespace NAMESPACE_IMPL {
             {
                 if (!exists(to_status)) {
                     if (!create_collection(_comm, _to, _from)) {
-                        throw filesystem_error{"cannot create collection", _to};
+                        throw filesystem_error{"cannot create collection", _to, make_error_code(FILE_CREATE_ERROR)};
                     }
                 }
 
@@ -352,7 +428,7 @@ namespace NAMESPACE_IMPL {
         detail::throw_if_path_length_exceeds_limit(_to);
 
         if (!is_data_object(_comm, _from)) {
-            throw filesystem_error{"path does not point to a data object", _from};
+            throw filesystem_error{"path does not point to a data object", _from, make_error_code(INVALID_OBJECT_TYPE)};
         }
 
         dataObjCopyInp_t input{};
@@ -361,15 +437,15 @@ namespace NAMESPACE_IMPL {
 
         if (exists(s)) {
             if (equivalent(_comm, _from, _to)) {
-                throw filesystem_error{"paths cannot point to the same object", _from, _to};
+                throw filesystem_error{"paths cannot point to the same object", _from, _to, make_error_code(SAME_SRC_DEST_PATHS_ERR)};
             }
 
             if (!is_data_object(s)) {
-                throw filesystem_error{"path does not point to a data object", _to};
+                throw filesystem_error{"path does not point to a data object", _to, make_error_code(INVALID_OBJECT_TYPE)};
             }
 
             if (copy_options::none == _options) {
-                throw filesystem_error{"copy options not set"};
+                throw filesystem_error{"copy options not set", make_error_code(SYS_INVALID_INPUT_PARAM)};
             }
 
             if (copy_options::skip_existing == _options) {
@@ -405,7 +481,7 @@ namespace NAMESPACE_IMPL {
         detail::throw_if_path_length_exceeds_limit(_p);
 
         if (!exists(_comm, _p.parent_path())) {
-            throw filesystem_error{"path does not exist", _p.parent_path()};
+            throw filesystem_error{"path does not exist", _p.parent_path(), make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
         }
 
         if (exists(_comm, _p)) {
@@ -427,7 +503,7 @@ namespace NAMESPACE_IMPL {
     auto create_collection(rxComm& _comm, const path& _p, const path& _existing_p) -> bool
     {
         if (_p.empty() || _existing_p.empty()) {
-            throw filesystem_error{"empty path"};
+            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
         detail::throw_if_path_length_exceeds_limit(_p);
@@ -436,7 +512,7 @@ namespace NAMESPACE_IMPL {
         const auto s = status(_comm, _existing_p);
 
         if (!is_collection(s)) {
-            throw filesystem_error{"existing path is not a collection", _existing_p};
+            throw filesystem_error{"existing path is not a collection", _existing_p, make_error_code(INVALID_OBJECT_TYPE)};
         }
 
         create_collection(_comm, _p);
@@ -476,7 +552,7 @@ namespace NAMESPACE_IMPL {
     auto equivalent(rxComm& _comm, const path& _p1, const path& _p2) -> bool
     {
         if (_p1.empty() || _p2.empty()) {
-            throw filesystem_error{"empty path"};
+            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
         const auto p1_info = stat(_comm, _p1);
@@ -486,7 +562,7 @@ namespace NAMESPACE_IMPL {
         }
 
         if (p1_info.type == UNKNOWN_OBJ_T) {
-            throw filesystem_error{"path does not exist", _p1};
+            throw filesystem_error{"path does not exist", _p1, make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
         }
 
         const auto p2_info = stat(_comm, _p2);
@@ -496,7 +572,7 @@ namespace NAMESPACE_IMPL {
         }
 
         if (p2_info.type == UNKNOWN_OBJ_T) {
-            throw filesystem_error{"path does not exist", _p2};
+            throw filesystem_error{"path does not exist", _p2, make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
         }
 
         return p1_info.id == p2_info.id;
@@ -511,7 +587,7 @@ namespace NAMESPACE_IMPL {
         }
 
         if (s.type == UNKNOWN_OBJ_T) {
-            throw filesystem_error{"path does not exist", _p};
+            throw filesystem_error{"path does not exist", _p, make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
         }
 
         if (s.type == DATA_OBJ_T) {
@@ -543,7 +619,7 @@ namespace NAMESPACE_IMPL {
             return is_collection_empty(_comm, _p);
         }
 
-        throw filesystem_error{"cannot check emptiness: unknown object type", _p};
+        throw filesystem_error{"cannot check emptiness: unknown object type", _p, make_error_code(CAT_NOT_A_DATAOBJ_AND_NOT_A_COLLECTION)};
     }
 
     auto is_other(object_status _s) noexcept -> bool
@@ -616,7 +692,7 @@ namespace NAMESPACE_IMPL {
             }
         }
         else {
-            throw filesystem_error{"cannot set mtime of unknown object type", _p};
+            throw filesystem_error{"cannot set mtime of unknown object type", _p, make_error_code(SYS_INTERNAL_ERR)};
         }
     }
 
@@ -729,7 +805,7 @@ namespace NAMESPACE_IMPL {
     auto rename(rxComm& _comm, const path& _old_p, const path& _new_p) -> void
     {
         if (_old_p.empty() || _new_p.empty()) {
-            throw filesystem_error{"empty path"};
+            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
         detail::throw_if_path_length_exceeds_limit(_old_p);
@@ -744,7 +820,7 @@ namespace NAMESPACE_IMPL {
         }
 
         if (has_prefix(_new_p, _old_p)) {
-            throw filesystem_error{"old path cannot be an ancestor of the new path", _old_p, _new_p};
+            throw filesystem_error{"old path cannot be an ancestor of the new path", _old_p, _new_p, make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
         {
@@ -752,7 +828,7 @@ namespace NAMESPACE_IMPL {
             const char* dot_dot = "..";
 
             if (_new_p.object_name() == dot || _new_p.object_name() == dot_dot) {
-                throw filesystem_error{R"_(path cannot end with "." or "..")_", _new_p};
+                throw filesystem_error{R"_(path cannot end with "." or "..")_", _new_p, make_error_code(SYS_INVALID_INPUT_PARAM)};
             }
         }
 
@@ -760,19 +836,19 @@ namespace NAMESPACE_IMPL {
             // Case 2: "_new_p" is an existing non-collection object.
             if (exists(new_p_stat)) {
                 if (!is_data_object(new_p_stat)) {
-                    throw filesystem_error{"path is not a data object", _new_p};
+                    throw filesystem_error{"path is not a data object", _new_p, make_error_code(INVALID_OBJECT_TYPE)};
                 }
             }
             // Case 3: "_new_p" is a non-existing data object in an existing collection.
             else if (!exists(_comm, _new_p.parent_path())) {
-                throw filesystem_error{"path does not exist", _new_p.parent_path()};
+                throw filesystem_error{"path does not exist", _new_p.parent_path(), make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
             }
         }
         else if (is_collection(old_p_stat)) {
             // Case 2: "_new_p" is an existing collection.
             if (exists(new_p_stat)) {
                 if (!is_collection(new_p_stat)) {
-                    throw filesystem_error{"path is not a collection", _new_p};
+                    throw filesystem_error{"path is not a collection", _new_p, make_error_code(INVALID_OBJECT_TYPE)};
                 }
             }
             // Case 3: "_new_p" is a non-existing collection w/ the following requirements:
@@ -780,15 +856,15 @@ namespace NAMESPACE_IMPL {
             //  2. The parent collection must exist.
             else if (detail::is_separator(_new_p.string().back()))
             {
-                throw filesystem_error{"path cannot end with a separator", _new_p};
+                throw filesystem_error{"path cannot end with a separator", _new_p, make_error_code(SYS_INVALID_INPUT_PARAM)};
             }
             else if (!is_collection(_comm, _new_p.parent_path()))
             {
-                throw filesystem_error{"path does not exist", _new_p.parent_path()};
+                throw filesystem_error{"path does not exist", _new_p.parent_path(), make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
             }
         }
         else {
-            throw filesystem_error{"cannot rename: unknown object type", _new_p};
+            throw filesystem_error{"cannot rename: unknown object type", _new_p, make_error_code(CAT_NOT_A_DATAOBJ_AND_NOT_A_COLLECTION)};
         }
 
         dataObjCopyInp_t input{};
@@ -814,13 +890,13 @@ namespace NAMESPACE_IMPL {
         -> std::vector<checksum>
     {
         if (_p.empty()) {
-            throw filesystem_error{"empty path"};
+            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
         detail::throw_if_path_length_exceeds_limit(_p);
 
         if (!is_data_object(_comm, _p)) {
-            throw filesystem_error{"path does not point to a data object", _p};
+            throw filesystem_error{"path does not point to a data object", _p, make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
         if (verification_calculation::if_empty == _calculation ||
@@ -842,7 +918,7 @@ namespace NAMESPACE_IMPL {
                     addKeyVal(&input.condInput, REPL_NUM_KW, replica_number_string.c_str());
                 }
                 else {
-                    throw filesystem_error{"cannot get checksum: invalid replica number"};
+                    throw filesystem_error{"cannot get checksum: invalid replica number", make_error_code(SYS_INVALID_INPUT_PARAM)};
                 }
             }
 
@@ -936,7 +1012,7 @@ namespace NAMESPACE_IMPL {
     auto get_metadata(rxComm& _comm, const path& _p) -> std::vector<metadata>
     {
         if (_p.empty()) {
-            throw filesystem_error{"empty path"};
+            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
         detail::throw_if_path_length_exceeds_limit(_p);
@@ -958,7 +1034,7 @@ namespace NAMESPACE_IMPL {
             sql += "'";
         }
         else {
-            throw filesystem_error{"cannot get metadata: unknown object type", _p};
+            throw filesystem_error{"cannot get metadata: unknown object type", _p, make_error_code(CAT_NOT_A_DATAOBJ_AND_NOT_A_COLLECTION)};
         }
 
         irods::experimental::query_builder qb;
@@ -978,116 +1054,19 @@ namespace NAMESPACE_IMPL {
         return results;
     }
 
-    auto set_metadata(rxComm& _comm, const path& _p, const metadata& _metadata) -> bool
+    auto set_metadata(rxComm& _comm, const path& _p, const metadata& _metadata) -> void
     {
-        if (_p.empty()) {
-            throw filesystem_error{"empty path"};
-        }
-
-        detail::throw_if_path_length_exceeds_limit(_p);
-
-        modAVUMetadataInp_t input{};
-
-        char command[] = "set";
-        input.arg0 = command;
-
-        char type[3]{};
-
-        const auto s = status(_comm, _p);
-
-        if (is_data_object(s)) {
-            std::strncpy(type, "-d", std::strlen("-d"));
-        }
-        else if (is_collection(s)) {
-            std::strncpy(type, "-C", std::strlen("-C"));
-        }
-        else {
-            throw filesystem_error{"cannot set metadata: unknown object type", _p};
-        }
-
-        input.arg1 = type;
-
-        char path_buf[MAX_NAME_LEN]{};
-        std::strncpy(path_buf, _p.c_str(), std::strlen(_p.c_str()));
-        input.arg2 = path_buf;
-
-        char attr_buf[MAX_NAME_LEN]{};
-        std::strncpy(attr_buf, _metadata.attribute.c_str(), _metadata.attribute.size());
-        input.arg3 = attr_buf;
-
-        char value_buf[MAX_NAME_LEN]{};
-        std::strncpy(value_buf, _metadata.value.c_str(), _metadata.value.size());
-        input.arg4 = value_buf;
-
-        char units_buf[MAX_NAME_LEN]{};
-        std::strncpy(units_buf, _metadata.units.c_str(), _metadata.units.size());
-        input.arg5 = units_buf;
-
-        const auto ec = rxModAVUMetadata(&_comm, &input);
-
-        if (ec != 0) {
-            throw filesystem_error{"cannot set metadata", _p, make_error_code(ec)};
-        }
-
-        return true;
+        do_metadata_op(_comm, _p, _metadata, "set");
     }
 
-    auto remove_metadata(rxComm& _comm, const path& _p, const metadata& _metadata) -> bool
+    auto add_metadata(rxComm& _comm, const path& _p, const metadata& _metadata) -> void
     {
-        if (_p.empty()) {
-            throw filesystem_error{"empty path"};
-        }
-
-        detail::throw_if_path_length_exceeds_limit(_p);
-
-        modAVUMetadataInp_t input{};
-
-        char command[] = "rm";
-        input.arg0 = command;
-
-        char type[3]{};
-
-        const auto s = status(_comm, _p);
-
-        if (is_data_object(s)) {
-            std::strncpy(type, "-d", std::strlen("-d"));
-        }
-        else if (is_collection(s)) {
-            std::strncpy(type, "-C", std::strlen("-C"));
-        }
-        else {
-            throw filesystem_error{"cannot remove metadata: unknown object type", _p};
-        }
-
-        input.arg1 = type;
-
-        char path_buf[MAX_NAME_LEN]{};
-        std::strncpy(path_buf, _p.c_str(), std::strlen(_p.c_str()));
-        input.arg2 = path_buf;
-
-        char attr_buf[MAX_NAME_LEN]{};
-        std::strncpy(attr_buf, _metadata.attribute.c_str(), _metadata.attribute.size());
-        input.arg3 = attr_buf;
-
-        char value_buf[MAX_NAME_LEN]{};
-        std::strncpy(value_buf, _metadata.value.c_str(), _metadata.value.size());
-        input.arg4 = value_buf;
-
-        char units_buf[MAX_NAME_LEN]{};
-        std::strncpy(units_buf, _metadata.units.c_str(), _metadata.units.size());
-        input.arg5 = units_buf;
-
-        const auto ec = rxModAVUMetadata(&_comm, &input);
-
-        if (ec != 0) {
-            throw filesystem_error{"cannot remove metadata", _p, make_error_code(ec)};
-        }
-
-        return true;
+        do_metadata_op(_comm, _p, _metadata, "add");
     }
 
-} // namespace NAMESPACE_IMPL
-} // namespace filesystem
-} // namespace experimental
-} // namespace irods
+    auto remove_metadata(rxComm& _comm, const path& _p, const metadata& _metadata) -> void
+    {
+        do_metadata_op(_comm, _p, _metadata, "rm");
+    }
+} // namespace irods::experimental::filesystem::NAMESPACE_IMPL
 

@@ -61,6 +61,25 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
         finally:
             IrodsController().restart()
 
+    @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-python', 'only applicable for python REP')
+    def test_re_serialization__prep_55(self):
+        try:
+            IrodsController().stop()
+            initial_size_of_server_log = lib.get_file_size_by_path(paths.server_log_path())
+            with temporary_core_file() as core:
+                core.add_rule(rule_texts[self.plugin_name][self.class_name][inspect.currentframe().f_code.co_name])
+                IrodsController().start()
+                with tempfile.NamedTemporaryFile(prefix='test_re_serialization__prep_55') as f:
+                    lib.make_file(f.name, 80, contents='arbitrary')
+                    self.admin.assert_icommand(['iput', f.name])
+            occur = lib.count_occurrences_of_regexp_in_log( paths.server_log_path(),
+                                                            (r'^.*writeLine: inString =\s*(\S+)=(\S*).*$',re.M),
+                                                            start_index=initial_size_of_server_log)
+            self.assertTrue(1 == len(occur))
+            self.assertTrue(occur[0].group(1) == 'user_rods_zone' and occur[0].group(2) == self.admin.zone_name)
+        finally:
+            IrodsController().restart()
+
     def iput_r_large_collection(self, user_session, base_name, file_count, file_size):
         local_dir = os.path.join(self.testing_tmp_dir, base_name)
         local_files = lib.make_large_local_tmp_dir(local_dir, file_count, file_size)
@@ -180,27 +199,32 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
         local_dir = os.path.join(self.testing_tmp_dir, coll_name)
         local_dirs = lib.make_deep_local_tmp_dir(local_dir, depth, files_per_level, file_size)
 
-        # restart server with LOG_DEBUG
-        env = os.environ.copy()
-        env['spLogLevel'] = '7'
-        IrodsController(IrodsConfig(injected_environment=env)).restart()
+        try:
+            # restart server with LOG_DEBUG
+            env = os.environ.copy()
+            env['spLogLevel'] = '7'
+            IrodsController(IrodsConfig(injected_environment=env)).restart()
 
-        # get log offset
-        initial_size_of_server_log = lib.get_file_size_by_path(IrodsConfig().server_log_path)
+            # get log offset
+            initial_size_of_server_log = lib.get_file_size_by_path(IrodsConfig().server_log_path)
 
-        # iput dir
-        self.user0.assert_icommand("iput -r {local_dir}".format(**locals()), "STDOUT_SINGLELINE", ustrings.recurse_ok_string())
+            # iput dir
+            self.user0.assert_icommand("iput -r {local_dir}".format(**locals()), "STDOUT_SINGLELINE", ustrings.recurse_ok_string())
+            self.user0.assert_icommand('iquest "SELECT COUNT(DATA_ID) WHERE COLL_NAME LIKE \'%/{coll_name}%\'"'.format(**locals()), 'STDOUT', str(files_per_level * depth))
 
-        # look for occurences of debug sequences in the log
-        rec_op_kw_string = 'DEBUG: unix_file_resolve_hierarchy: recursiveOpr = [1]'
-        rec_op_kw_string_count = lib.count_occurrences_of_string_in_log(IrodsConfig().server_log_path, rec_op_kw_string, start_index=initial_size_of_server_log)
+            # look for occurences of debug sequences in the log
+            rec_op_kw_string = 'recursiveOpr found in cond_input for file_obj'
+            lib.delayAssert(
+                lambda: lib.log_message_occurrences_equals_count(
+                    msg=rec_op_kw_string,
+                    count=files_per_level * depth,
+                    server_log_path=IrodsConfig().server_log_path,
+                    start_index=initial_size_of_server_log))
 
-        # assertions
-        self.assertEqual(rec_op_kw_string_count, files_per_level * depth)
-
-        # restart server with original environment
-        del(env['spLogLevel'])
-        IrodsController(IrodsConfig(injected_environment=env)).restart()
+        finally:
+            # restart server with original environment
+            del(env['spLogLevel'])
+            IrodsController(IrodsConfig(injected_environment=env)).restart()
 
     def test_imv_r(self):
         base_name_source = "test_imv_r_dir_source"
@@ -668,9 +692,10 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
             with tempfile.NamedTemporaryFile(prefix='test_delay_in_dynamic_pep__3342') as f:
                 lib.make_file(f.name, 80, contents='arbitrary')
                 self.admin.assert_icommand(['iput', '-f', f.name])
-            time.sleep(35)
-            assert 1 == lib.count_occurrences_of_string_in_log(paths.server_log_path(),
-                'writeLine: inString = dynamic pep in delay', start_index=initial_size_of_server_log)
+            lib.delayAssert(
+                lambda: lib.log_message_occurrences_equals_count(
+                    msg='writeLine: inString = dynamic pep in delay',
+                    start_index=initial_size_of_server_log))
 
     def test_iput_bulk_check_acpostprocforput__2841(self):
         # prepare test directory
@@ -687,7 +712,11 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
 
                 initial_size_of_server_log = lib.get_file_size_by_path(paths.server_log_path())
                 self.admin.assert_icommand(['iput', '-frb', dirname], "STDOUT_SINGLELINE", ustrings.recurse_ok_string())
-                assert number_of_files == lib.count_occurrences_of_string_in_log(paths.server_log_path(), 'writeLine: inString = acPostProcForPut called for', start_index=initial_size_of_server_log)
+                lib.delayAssert(
+                    lambda: lib.log_message_occurrences_equals_count(
+                        msg='writeLine: inString = acPostProcForPut called for',
+                        count=number_of_files,
+                        start_index=initial_size_of_server_log))
                 shutil.rmtree(dirname)
 
     def test_large_irods_maximum_size_for_single_buffer_in_megabytes_2880(self):
@@ -736,7 +765,7 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
             self.user0.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', 'demoResc')
             self.user0.assert_icommand(['irm', '-f', filename])
 
-            self.user0.assert_icommand(['iput', '-fR '+self.testresc, filepath])
+            self.user0.assert_icommand(['iput', '-fR', self.testresc, filepath])
             self.user0.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', 'demoResc')
             self.user0.assert_icommand(['irm', '-f', filename])
 
@@ -747,7 +776,7 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
             self.admin.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', 'demoResc')
             self.admin.assert_icommand(['irm', '-f', filename])
 
-            self.admin.assert_icommand(['iput', '-fR '+self.testresc, filepath])
+            self.admin.assert_icommand(['iput', '-fR', self.testresc, filepath])
             self.admin.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', self.testresc)
             self.admin.assert_icommand(['irm', '-f', filename])
 
@@ -769,7 +798,7 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
             self.user0.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', 'demoResc')
             self.user0.assert_icommand(['irm', '-f', filename])
 
-            self.user0.assert_icommand(['iput', '-fR '+self.testresc, filepath])
+            self.user0.assert_icommand(['iput', '-fR', self.testresc, filepath])
             self.user0.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', self.testresc)
             self.user0.assert_icommand(['irm', '-f', filename])
 
@@ -780,7 +809,7 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
             self.admin.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', 'demoResc')
             self.admin.assert_icommand(['irm', '-f', filename])
 
-            self.admin.assert_icommand(['iput', '-fR '+self.testresc, filepath])
+            self.admin.assert_icommand(['iput', '-fR', self.testresc, filepath])
             self.admin.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', self.testresc)
             self.admin.assert_icommand(['irm', '-f', filename])
 
@@ -802,7 +831,7 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
             self.user0.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', 'demoResc')
             self.user0.assert_icommand(['irm', '-f', filename])
 
-            self.user0.assert_icommand(['iput', '-fR '+self.testresc, filepath])
+            self.user0.assert_icommand(['iput', '-fR', self.testresc, filepath])
             self.user0.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', self.testresc)
             self.user0.assert_icommand(['irm', '-f', filename])
 
@@ -813,7 +842,7 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
             self.admin.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', 'demoResc')
             self.admin.assert_icommand(['irm', '-f', filename])
 
-            self.admin.assert_icommand(['iput', '-fR '+self.testresc, filepath])
+            self.admin.assert_icommand(['iput', '-fR', self.testresc, filepath])
             self.admin.assert_icommand(['ils', '-l', filename], 'STDOUT_SINGLELINE', self.testresc)
             self.admin.assert_icommand(['irm', '-f', filename])
 
@@ -869,7 +898,11 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
 
         initial_size_of_server_log = lib.get_file_size_by_path(paths.server_log_path())
         self.admin.assert_icommand(['irm', '-rf', collection_to_delete])
-        self.assertEqual(0, lib.count_occurrences_of_string_in_log(paths.server_log_path(), 'ERROR', start_index=initial_size_of_server_log))
+        lib.delayAssert(
+            lambda: lib.log_message_occurrences_equals_count(
+                msg='ERROR',
+                count=0,
+                start_index=initial_size_of_server_log))
         os.unlink(filename)
 
     def test_ichksum_file_size_verification__3537(self):
@@ -1616,4 +1649,65 @@ class Test_ICommands_File_Operations(resource_suite.ResourceBase, unittest.TestC
         finally:
             self.user0.run_icommand('irm -rf {dir1}'.format(**locals()))
             shutil.rmtree(os.path.abspath(dir1path), ignore_errors=True)
+
+    # These tests create a resource with a vault for which iRODS has no write permission and tries to put a file there
+    def test_iput_small_file_to_resource_with_restricted_vault_permission(self):
+        self.iput_to_resource_with_restricted_vault_permission_test(1)
+
+    def test_iput_large_file_to_resource_with_restricted_vault_permission(self):
+        self.iput_to_resource_with_restricted_vault_permission_test(40000001)
+
+    def iput_to_resource_with_restricted_vault_permission_test(self, size):
+        resc_name = 'cantwritetovaultresc'
+        vault_path = os.path.join('/', 'var')
+        self.admin.assert_icommand(['iadmin', 'mkresc', resc_name, 'unixfilesystem', lib.get_hostname() + ':' + vault_path], 'STDOUT_SINGLELINE', resc_name)
+        file_name = 'test_iput_to_resource_with_restricted_vault_permission'
+        file_path = os.path.join(self.testing_tmp_dir, file_name)
+        lib.make_file(file_path, size)
+        logical_path = os.path.join(self.admin.session_collection, file_name) # another user's home collection
+        try:
+            self.admin.assert_icommand(['iput', '-R', resc_name, file_path], 'STDERR', 'UNIX_FILE_MKDIR_ERR')
+            self.admin.assert_icommand(['ils', '-l', file_name], 'STDERR', 'does not exist')
+            session_vault_path = self.admin.get_vault_session_path()
+            self.assertFalse(os.path.exists(os.path.join(session_vault_path, file_name)))
+        finally:
+            self.admin.run_icommand(['irm', '-f', logical_path])
+            os.unlink(file_path)
+            self.admin.assert_icommand(['iadmin', 'rmresc', resc_name])
+
+    # These tests attempt to put a file to a logical path to which the authenticated user has no access permission
+    def test_iput_small_file_to_restricted_logical_path(self):
+        self.iput_to_restricted_logical_path_test(1)
+
+    def test_iput_large_file_to_restricted_logical_path(self):
+        self.iput_to_restricted_logical_path_test(40000001)
+
+    def iput_to_restricted_logical_path_test(self, size):
+        file_name = 'iput_to_restricted_logical_path_test'
+        file_path = os.path.join(self.testing_tmp_dir, file_name)
+        lib.make_file(file_path, size)
+        logical_path = os.path.join(self.user1.session_collection, file_name) # another user's home collection
+        try:
+            # attempt to put file where there is no permission
+            self.user0.assert_icommand(['iput', file_path, logical_path], 'STDERR', 'CAT_NO_ACCESS_PERMISSION')
+            self.admin.assert_icommand(['ils', '-l', logical_path], 'STDERR', 'does not exist')
+            session_vault_path = self.user1.get_vault_session_path()
+            self.assertFalse(os.path.exists(os.path.join(session_vault_path, file_name)))
+
+            # attempt an overwrite
+            self.user1.assert_icommand(['iput', file_path, logical_path])
+            self.admin.assert_icommand(['ils', '-l', logical_path], 'STDOUT', file_name)
+            self.user0.assert_icommand(['iput', file_path, logical_path], 'STDERR', 'CAT_NO_ACCESS_PERMISSION')
+            self.admin.assert_icommand(['ils', '-l', logical_path], 'STDOUT', file_name)
+            session_vault_path = self.user1.get_vault_session_path()
+            self.assertTrue(os.path.exists(os.path.join(session_vault_path, file_name)))
+
+            # attempt a forced overwrite
+            self.user0.assert_icommand(['iput', '-f', file_path, logical_path], 'STDERR', 'CAT_NO_ACCESS_PERMISSION')
+            self.admin.assert_icommand(['ils', '-l', logical_path], 'STDOUT', file_name)
+            session_vault_path = self.user1.get_vault_session_path()
+            self.assertTrue(os.path.exists(os.path.join(session_vault_path, file_name)))
+        finally:
+            self.admin.run_icommand(['irm', '-f', logical_path])
+            os.unlink(file_path)
 

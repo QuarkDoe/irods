@@ -5,6 +5,7 @@ import sys
 import shutil
 import ustrings
 import commands
+import tempfile
 
 if sys.version_info < (2, 7):
     import unittest2 as unittest
@@ -195,6 +196,33 @@ class Test_iPut_Options(ResourceBase, unittest.TestCase):
             self.user0.assert_icommand_fail( cmd, 'STDOUT_SINGLELINE', symtoself );
             self.user0.assert_icommand_fail( cmd, 'STDOUT_SINGLELINE', goodfile );
 
+    def test_iput_recursive_bulk_upload__4657(self):
+        bulk_str = 'Bulk upload'
+        source_path = tempfile.mkdtemp()
+        tempfile.mkstemp(dir=source_path)
+        try:
+            _,out,_ = self.admin.assert_icommand(
+                ['iput', '-v', '-r', source_path, 'v-r'],
+                'STDOUT', ustrings.recurse_ok_string())
+            self.assertNotIn(bulk_str, out, 'Bulk upload performed with no bulk flag')
+
+            _,out,_ = self.admin.assert_icommand(
+                ['iput', '-v', '-r', '-f', source_path, 'v-r-f'],
+                'STDOUT', ustrings.recurse_ok_string())
+            self.assertNotIn(bulk_str, out, 'Bulk upload performed with no bulk flag')
+
+            _,out,_ = self.admin.assert_icommand(
+                ['iput', '-v', '-r', '-b', source_path, 'v-r-b'],
+                'STDOUT', ustrings.recurse_ok_string())
+            self.assertIn(bulk_str, out, 'Bulk upload not performed when requested')
+
+            _,out,_ = self.admin.assert_icommand(
+                ['iput', '-v', '-r', '-b', '-f', source_path, 'v-r-b-f'],
+                'STDOUT', ustrings.recurse_ok_string())
+            self.assertIn(bulk_str, out, 'Bulk upload not performed when requested')
+        finally:
+            shutil.rmtree(source_path, ignore_errors=True)
+
 class Test_iPut_Options_Issue_3883(ResourceBase, unittest.TestCase):
 
     def setUp(self):
@@ -230,6 +258,6 @@ class Test_iPut_Options_Issue_3883(ResourceBase, unittest.TestCase):
     def test_iput_zero_length_file_with_purge_and_checksum_3883(self):
         filename = 'test_iput_zero_length_file_with_purge_and_checksum_3883'
         lib.touch(filename)
-        self.user0.assert_icommand(['iput', '-R', 'compoundresc3883', '--purgec', '-k', filename])
+        self.user0.assert_icommand(['iput', '-R', 'compoundresc3883', '--purgec', '-k', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')
         self.user0.assert_icommand(['ils', '-L'], 'STDOUT_SINGLELINE', 'sha2:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=')
         os.unlink(filename)

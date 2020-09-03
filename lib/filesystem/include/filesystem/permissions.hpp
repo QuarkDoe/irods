@@ -3,10 +3,8 @@
 
 #include <string>
 
-namespace irods {
-namespace experimental {
-namespace filesystem {
-
+namespace irods::experimental::filesystem
+{
     enum class perms
     {
         null,
@@ -20,11 +18,10 @@ namespace filesystem {
     struct entity_permission
     {
         std::string name;
+        std::string zone;
         perms prms;
+        std::string type;
     };
-
-} // namespace filesystem
-} // namespace experimental
-} // namespace irods
+} // namespace irods::experimental::filesystem
 
 #endif // IRODS_FILESYSTEM_PERMISSIONS_HPP

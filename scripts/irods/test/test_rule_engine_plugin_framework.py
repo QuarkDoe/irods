@@ -131,10 +131,17 @@ class Test_Rule_Engine_Plugin_Framework(session.make_sessions_mixin([('otherrods
 
                 # Search the log file for instances of CAT_PASSWORD_EXPIRED and RULE_ENGINE_CONTINUE.
                 # Should only find CAT_PASSWORD_EXPIRED.
-                msg_1 = "returned '{0}' to REPF".format(str(CAT_PASSWORD_EXPIRED))
-                msg_2 = "returned '{0}' to REPF".format(str(RULE_ENGINE_CONTINUE))
-                self.assertTrue(lib.count_occurrences_of_string_in_log(paths.server_log_path(), msg_1, log_offset) == 1)
-                self.assertTrue(lib.count_occurrences_of_string_in_log(paths.server_log_path(), msg_2, log_offset) == 0)
+                msg_1 = "returned '{0}' to REPF.".format(str(CAT_PASSWORD_EXPIRED))
+                lib.delayAssert(
+                    lambda: lib.log_message_occurrences_equals_count(
+                        msg=msg_1,
+                        start_index=log_offset))
+                msg_2 = "returned '{0}' to REPF.".format(str(RULE_ENGINE_CONTINUE))
+                lib.delayAssert(
+                    lambda: lib.log_message_occurrences_equals_count(
+                        msg=msg_2,
+                        count=0,
+                        start_index=log_offset))
 
     @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python' or test.settings.RUN_IN_TOPOLOGY, "Skip for Python REP and Topology Testing")
     def test_continuation_followed_by_an_error(self):
@@ -202,12 +209,218 @@ class Test_Rule_Engine_Plugin_Framework(session.make_sessions_mixin([('otherrods
                     self.assertTrue(mm.find(msg_2, index) != -1)
                     mm.close()
 
-def delayAssert(a, interval=1, maxrep=100):
-    for i in range(maxrep):
-        time.sleep(interval)  # wait for test to fire
-        if a():
-            break
-    assert a()
+    @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python' or test.settings.RUN_IN_TOPOLOGY, "Skip for Python REP and Topology Testing")
+    def test_exec_rule_text_and_expression_supports_continuation__issue_4299(self):
+        config = IrodsConfig()
+
+        with lib.file_backed_up(config.server_config_path):
+            # PEPs.
+            pep_api_exec_my_rule_pre = 'pep_api_exec_my_rule_pre'
+            pep_api_exec_rule_expression_pre = 'pep_api_exec_rule_expression_pre'
+
+            # Rule engine error codes to return.
+            RULE_ENGINE_CONTINUE = 5000000
+
+            # Lower the delay server's sleep time so that rules are executed quicker.
+            config.server_config['advanced_settings']['rule_engine_server_sleep_time_in_seconds'] = 1
+
+            # Enable the Passthrough REP (make it the first REP in the list).
+            # Configure the Passthrough REP to return 'RULE_ENGINE_CONTINUE' to the REPF.
+            config.server_config['plugin_configuration']['rule_engines'].insert(0, {
+                'instance_name': 'irods_rule_engine_plugin-passthrough-instance',
+                'plugin_name': 'irods_rule_engine_plugin-passthrough',
+                'plugin_specific_configuration': {
+                    'return_codes_for_peps': [
+                        {
+                            'regex': '^' + pep_api_exec_my_rule_pre + '$',
+                            'code': RULE_ENGINE_CONTINUE
+                        },
+                        {
+                            'regex': '^' + pep_api_exec_rule_expression_pre + '$',
+                            'code': RULE_ENGINE_CONTINUE
+                        }
+                    ]
+                }
+            })
+            lib.update_json_file_from_dict(config.server_config_path, config.server_config)
+
+            IrodsController().restart()
+
+            with lib.file_backed_up(config.client_environment_path):
+                lib.update_json_file_from_dict(config.client_environment_path, {'irods_log_level': 7})
+
+                # Test 1 - exec_rule_text
+                # ~~~~~~~~~~~~~~~~~~~~~~~
+                msg = 'exec_rule_text: Using -r to target a REP is not required anymore!'
+                self.admin.assert_icommand(['irule', 'writeLine("stdout", "{0}")'.format(msg), 'null', 'ruleExecOut'], 'STDOUT', msg)
+
+                # Test 2 - exec_rule_expression
+                # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                # Capture the current size of the log file. This will be used as the starting
+                # point for searching the log file for a particular string.
+                log_offset = lib.get_file_size_by_path(paths.server_log_path())
+
+                msg = 'exec_rule_expression: Using -r to target a REP is not required anymore!'
+                self.admin.assert_icommand(['irule', 'delay("0.1s") {{ writeLine("serverLog", "{0}"); }}'.format(msg), 'null', 'null'])
+
+                def check_log():
+                    with open(paths.server_log_path(), 'r') as log_file:
+                        mm = mmap.mmap(log_file.fileno(), 0, access=mmap.ACCESS_READ)
+                        found = (mm.find(msg, log_offset) != -1)
+                        mm.close()
+                        return found
+
+                lib.delayAssert(check_log)
+
+        IrodsController().restart()
+
+    @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python' or test.settings.RUN_IN_TOPOLOGY, "Skip for Python REP and Topology Testing")
+    def test_repf_supports_skipping_operations_and_nrep_returns_positive_error_codes_to_repf__issues_4752_4753(self):
+        config = IrodsConfig()
+        core_re_path = os.path.join(config.core_re_directory, 'core.re')
+
+        with lib.file_backed_up(core_re_path):
+            # Disable put operation by returning RULE_ENGINE_SKIP_OPERATION (a.k.a. 5001000) to the REPF.
+            with open(core_re_path, 'a') as core_re:
+                core_re.write('pep_api_data_obj_put_pre(*INSTANCE_NAME, *COMM, *DATAOBJINP, *BUFFER, *PORTAL_OPR_OUT) { 5001000 }')
+                core_re.write('pep_api_data_obj_put_post(*INSTANCE_NAME, *COMM, *DATAOBJINP, *BUFFER, *PORTAL_OPR_OUT) { -165000 }')
+
+            filename = os.path.join(self.admin.local_session_dir, 'skip_operation.txt')
+            lib.make_file(filename, 1, 'arbitrary')
+
+            # This proves that the Post-PEP fired.
+            self.admin.assert_icommand(['iput', filename], 'STDERR', ['SYS_UNKNOWN_ERROR'])
+
+            # This proves that the operation was skipped.
+            self.admin.assert_icommand(['ils', os.path.basename(filename)], 'STDERR_SINGLELINE', '{} does not exist'.format(os.path.basename(filename)))
+
+    @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python' or test.settings.RUN_IN_TOPOLOGY, "Skip for Python REP and Topology Testing")
+    def test_repf_logs_warning_if_skip_operation_code_is_returned_from_non_pre_peps__issue_4800(self):
+        config = IrodsConfig()
+
+        with lib.file_backed_up(config.client_environment_path):
+            lib.update_json_file_from_dict(config.client_environment_path, {'irods_log_level': 7})
+
+            core_re_path = os.path.join(config.core_re_directory, 'core.re')
+
+            # Test Post-PEPs and Finally-PEPs.
+            for pep_suffix in ['post', 'finally']:
+                with lib.file_backed_up(core_re_path):
+                    # Return RULE_ENGINE_SKIP_OPERATION (a.k.a. 5001000) to the REPF.
+                    with open(core_re_path, 'a') as core_re:
+                        core_re.write('pep_api_data_obj_put_{0}(*INSTANCE_NAME, *COMM, *DATAOBJINP, *BUFFER, *PORTAL_OPR_OUT) {{ 5001000 }}'.format(pep_suffix))
+
+                    filename = os.path.join(self.admin.local_session_dir, 'foo')
+                    lib.make_file(filename, 1, 'arbitrary')
+
+                    # Capture the current size of the log file. This will be used as the starting
+                    # point for searching the log file for a particular string.
+                    log_offset = lib.get_file_size_by_path(paths.server_log_path())
+
+                    self.admin.assert_icommand(['iput', filename])
+
+                    msg = 'RULE_ENGINE_SKIP_OPERATION (5001000) incorrectly returned from PEP [pep_api_data_obj_put_{0}]'.format(pep_suffix)
+                    lib.delayAssert(lambda: lib.log_message_occurrences_greater_than_count(msg=msg, count=0, start_index=log_offset))
+
+                    self.admin.assert_icommand(['irm', os.path.basename(filename)])
+
+            # Test Except-PEPs.
+            with lib.file_backed_up(core_re_path):
+                # Return RULE_ENGINE_SKIP_OPERATION (a.k.a. 5001000) to the REPF.
+                with open(core_re_path, 'a') as core_re:
+                    core_re.write('pep_api_data_obj_put_pre(*INSTANCE_NAME, *COMM, *DATAOBJINP, *BUFFER, *PORTAL_OPR_OUT) { -1 }\n')
+                    core_re.write('pep_api_data_obj_put_except(*INSTANCE_NAME, *COMM, *DATAOBJINP, *BUFFER, *PORTAL_OPR_OUT) { 5001000 }\n')
+
+                filename = os.path.join(self.admin.local_session_dir, 'foo')
+                lib.make_file(filename, 1, 'arbitrary')
+
+                # Capture the current size of the log file. This will be used as the starting
+                # point for searching the log file for a particular string.
+                log_offset = lib.get_file_size_by_path(paths.server_log_path())
+
+                self.admin.assert_icommand_fail(['iput', filename])
+
+                msg = 'RULE_ENGINE_SKIP_OPERATION (5001000) incorrectly returned from PEP [pep_api_data_obj_put_except]'
+                lib.delayAssert(lambda: lib.log_message_occurrences_greater_than_count(msg=msg, count=0, start_index=log_offset))
+
+    @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-irods_rule_language' or test.settings.RUN_IN_TOPOLOGY, "Skip for Native REP and Topology Testing")
+    def test_python_rule_engine_plugin_supports_repf_continuation(self):
+        config = IrodsConfig()
+
+        with lib.file_backed_up(config.server_config_path):
+            pep_name = 'pep_database_open_pre'
+            RULE_ENGINE_CONTINUE = 5000000
+
+            # Enable the Passthrough REP (make it the second REP in the list).
+            # Configure the Passthrough REP to return 'RULE_ENGINE_CONTINUE' to the REPF.
+            # Set the log level to 'trace' for the rule engine and legacy logger categories.
+            config.server_config['plugin_configuration']['rule_engines'].insert(1, {
+                'instance_name': 'irods_rule_engine_plugin-passthrough-instance',
+                'plugin_name': 'irods_rule_engine_plugin-passthrough',
+                'plugin_specific_configuration': {
+                    'return_codes_for_peps': [
+                        {
+                            'regex': '^' + pep_name + '$',
+                            'code': RULE_ENGINE_CONTINUE
+                        }
+                    ]
+                }
+            })
+            lib.update_json_file_from_dict(config.server_config_path, config.server_config)
+
+            with lib.file_backed_up(config.client_environment_path):
+                lib.update_json_file_from_dict(config.client_environment_path, {'irods_log_level': 7})
+
+                core_re_path = os.path.join(config.core_re_directory, 'core.py')
+
+                with lib.file_backed_up(core_re_path):
+                    first_msg = 'This should appear first!'
+
+                    # Add a new PEP to core.py that will write to the log file.
+                    # This will help to verify that the PREP is not blocking anything.
+                    with open(core_re_path, 'a') as core_re:
+                        core_re.write(("def {0}(rule_args, callback, rei):\n"
+                                       "    callback.writeLine('serverLog', '{1}')\n"
+                                       "    return {2}\n").format(pep_name, first_msg, str(RULE_ENGINE_CONTINUE)))
+
+                    # Trigger the PREP and Passthrough REP.
+                    self.admin.run_icommand(['ils'])
+
+                    found_msg_1 = False
+                    found_msg_2 = False
+
+                    # Verify that the PREP message appears in the log file before the message
+                    # produced by the Passthrough REP.
+                    with open(paths.server_log_path(), 'r') as log_file:
+                        mm = mmap.mmap(log_file.fileno(), 0, access=mmap.ACCESS_READ)
+                        index = mm.find(first_msg)
+                        if index != -1:
+                            found_msg_1 = True
+                            found_msg_2 = (mm.find("returned '{0}' to REPF.".format(str(RULE_ENGINE_CONTINUE)), index) != -1)
+                        mm.close()
+
+                    self.assertTrue(found_msg_1)
+                    self.assertTrue(found_msg_2)
+
+    @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-irods_rule_language' or test.settings.RUN_IN_TOPOLOGY, "Skip for Native REP and Topology Testing")
+    def test_python_rule_engine_plugin_supports_repf_skip_operation(self):
+        config = IrodsConfig()
+        core_re_path = os.path.join(config.core_re_directory, 'core.py')
+
+        with lib.file_backed_up(core_re_path):
+            # Disable puts by returning RULE_ENGINE_SKIP_OPERATION (a.k.a. 5001000) to the REPF.
+            with open(core_re_path, 'a') as core_re:
+                core_re.write('def pep_api_data_obj_put_pre(rule_args, callback, rei):\n\treturn 5001000\n')
+                core_re.write('def pep_api_data_obj_put_post(rule_args, callback, rei):\n\treturn -165000\n')
+
+            filename = os.path.join(self.admin.local_session_dir, 'skip_operation.txt')
+            lib.make_file(filename, 1, 'arbitrary')
+
+            # This proves that the Post-PEP fired.
+            self.admin.assert_icommand(['iput', filename], 'STDERR', ['SYS_UNKNOWN_ERROR'])
+
+            # This proves that the operation was skipped.
+            self.admin.assert_icommand(['ils', os.path.basename(filename)], 'STDERR_SINGLELINE', '{} does not exist'.format(os.path.basename(filename)))
 
 class Test_Plugin_Instance_Delay(ResourceBase, unittest.TestCase):
 
@@ -262,5 +475,70 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand(['irule', '-r', native_plugin_name, '-F', rule_file])
             self.admin.assert_icommand('iqstat', 'STDOUT_SINGLELINE', 'writeLine')
 
-            delayAssert(lambda: lib.count_occurrences_of_string_in_log(paths.server_log_path(), 'Test_Plugin_Instance_Delay', start_index=initial_log_size))
+            lib.delayAssert(lambda: lib.count_occurrences_of_string_in_log(paths.server_log_path(), 'Test_Plugin_Instance_Delay', start_index=initial_log_size))
 
+def delay_assert(command, interval=1, maxrep=5):
+    success = False
+    for _ in range(maxrep):
+        time.sleep(interval)  # wait for test to fire
+        try:
+            command()
+            success = True
+            break
+        except AssertionError:
+            continue
+    if not success:
+        raise AssertionError
+
+class Test_Plugin_Instance_CppDefault(ResourceBase, unittest.TestCase):
+
+    plugin_name = IrodsConfig().default_rule_engine_plugin
+
+    def setUp(self):
+        super(Test_Plugin_Instance_CppDefault, self).setUp()
+
+    def tearDown(self):
+        super(Test_Plugin_Instance_CppDefault, self).tearDown()
+
+    @unittest.skipIf(plugin_name == 'irods_rule_engine_plugin-python' or test.settings.RUN_IN_TOPOLOGY, "Skip for Python REP and Topology Testing")
+    def test_delay_rule(self):
+        delay_rule = """
+{
+    "policy" : "irods_policy_enqueue_rule",
+    "delay_conditions" : "",
+    "payload" : {
+        "policy" : "irods_policy_execute_rule",
+        "payload" : {
+            "policy_to_invoke" : "create_flag_object",
+            "parameters" : {
+            },
+            "configuration" : {
+            }
+        }
+    }
+}
+INPUT null
+OUTPUT ruleExecOut
+        """
+        rule_file = tempfile.NamedTemporaryFile(mode='wt', dir='/tmp', delete=False).name + '.r'
+        with open(rule_file, 'w') as f:
+            f.write(delay_rule)
+
+        flag_file = self.admin.session_collection + '/flag_file'
+        new_rule = """
+create_flag_object(*p, *c) {{
+msiDataObjCreate("{0}", "forceFlag=", *out)
+}}""".format(flag_file)
+
+        with temporary_core_file() as core:
+            core.add_rule(new_rule)
+
+            config = IrodsConfig()
+            with lib.file_backed_up(config.server_config_path):
+                config.server_config['advanced_settings']['rule_engine_server_sleep_time_in_seconds'] = 1
+                lib.update_json_file_from_dict(config.server_config_path, config.server_config)
+                IrodsController().restart()
+
+                self.admin.assert_icommand(['irule', '-F', rule_file])
+                self.admin.assert_icommand('iqstat', 'STDOUT_SINGLELINE', 'irods_policy_execute_rule')
+                delay_assert(lambda: self.admin.assert_icommand(['ils', '-l', flag_file],  'STDOUT_SINGLELINE', 'flag_file'))

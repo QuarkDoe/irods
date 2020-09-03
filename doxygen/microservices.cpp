@@ -146,6 +146,9 @@
   - #msiAddKeyVal - Adds a new key and value to a keyValPair_t
 
  \subsection msiotheruser Other User Microservices
+  - #msiModAVUMetadata - Modifies AVU metadata on a user, resource, data object, or collection
+  - #msi_atomic_apply_acl_operations - Atomically modifies multiple ACLs on a single data object or collection
+  - #msi_atomic_apply_metadata_operations - Atomically modifies multiple AVUs on a single user, resource, data object, or collection
   - #msiExtractNaraMetadata - Extracts NARA style metadata from a local configuration file
   - #msiApplyDCMetadataTemplate - Adds Dublin Core Metadata fields to an object or collection
   - #msiRegisterData - Registers a new data object
@@ -176,8 +179,8 @@
   - #msiSetResource  - sets the resource from default
   - #msiSortDataObj - Sort the replica randomly when choosing which copy to use
   - #msiSetNumThreads - specify the parameters for determining the number of threads to use for data transfer
-  - #msiSysChksumDataObj - Checksums a data object
-  - #msiSysReplDataObj - Replicates a data object
+  - #msiSysChksumDataObj - Checksums a data object - Deprecated, use #msiDataObjChksum
+  - #msiSysReplDataObj - Replicates a data object - Deprecated, use #msiDataObjRepl
   - #msiSysMetaModify - Modifies system metadata
   - #msiStageDataObj - Stages the data object to the specified resource before operation
   - #msiNoChkFilePathPerm - Does not check file path permission when registering a file

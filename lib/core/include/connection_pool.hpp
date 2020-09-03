@@ -23,6 +23,8 @@ namespace irods
         public:
             friend class connection_pool;
 
+            connection_proxy();
+
             connection_proxy(connection_proxy&&);
             connection_proxy& operator=(connection_proxy&&);
 
@@ -89,6 +91,8 @@ namespace irods
         const int refresh_time_;
         std::vector<connection_context> conn_ctxs_;
     };
+
+    std::shared_ptr<connection_pool> make_connection_pool(int size = 1);
 } // namespace irods
 
 #endif // IRODS_CONNECTION_POOL_HPP

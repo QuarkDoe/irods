@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5.0 FATAL_ERROR) #CPACK_DEBIAN_<COMPONENT>_PACKAGE_NAME
+cmake_minimum_required(VERSION 3.7.0 FATAL_ERROR) #CPACK_DEBIAN_<COMPONENT>_PACKAGE_NAME
 include(${CMAKE_SOURCE_DIR}/cmake/RequireOutOfSourceBuild.cmake)
 
 if (NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
@@ -27,19 +27,31 @@ macro(IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIE
   list(APPEND IRODS_PACKAGE_DEPENDENCIES_LIST irods-externals-${DEPENDENCY_SUBDIRECTORY})
 endmacro()
 
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH(CLANG clang3.8-0)
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH(CPPZMQ cppzmq4.1-0)
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(ARCHIVE libarchive3.3.2-0)
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(AVRO avro1.7.7-0)
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(BOOST boost1.60.0-0)
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(CLANG_RUNTIME clang-runtime3.8-0)
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(JANSSON jansson2.7-0)
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(ZMQ zeromq4-14.1.3-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH(CLANG clang6.0-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH(CPPZMQ cppzmq4.2.3-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(ARCHIVE libarchive3.3.2-1)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(AVRO avro1.9.0-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(BOOST boost1.67.0-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(CLANG_RUNTIME clang-runtime6.0-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(ZMQ zeromq4-14.1.6-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(JSON json3.7.3-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(CATCH2 catch22.3.0-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(NANODBC nanodbc2.13.0-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(FMT fmt6.1.2-1)
 
 string(REPLACE ";" ", " IRODS_PACKAGE_DEPENDENCIES_STRING "${IRODS_PACKAGE_DEPENDENCIES_LIST}")
 
-set(CMAKE_C_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/clang)
-set(CMAKE_CXX_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/clang++)
+if (NOT CLANG_STATIC_ANALYZER)
+  set(CLANG_STATIC_ANALYZER OFF CACHE BOOL "Choose whether to run Clang Static Analyzer." FORCE)
+  message(STATUS "Setting CLANG_STATIC_ANALYZER to 'OFF'.")
+  set(CMAKE_C_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/clang)
+  set(CMAKE_CXX_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/clang++)
+else()
+  set(CLANG_STATIC_ANALYZER ON CACHE BOOL "Choose whether to run Clang Static Analyzer." FORCE)
+  message(STATUS "Setting CLANG_STATIC_ANALYZER to 'ON'.")
+  set(CMAKE_C_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/ccc-analyzer)
+  set(CMAKE_CXX_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/c++-analyzer)
+endif()
 
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
 
@@ -55,12 +67,13 @@ endif()
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(CMAKE_INSTALL_RPATH ${IRODS_EXTERNALS_FULLPATH_CLANG_RUNTIME}/lib)
 
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -Wl,--export-dynamic") # export-dynamic so stacktrace entries from executables have function names
-set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -Wl,--export-dynamic -pthread") # export-dynamic so stacktrace entries from executables have function names
+set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs -pthread")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs -pthread")
 add_compile_options(-nostdinc++ -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter)
 link_libraries(c++abi)
-include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1)
+include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1
+                    ${IRODS_EXTERNALS_FULLPATH_JSON}/include)
 
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
@@ -75,10 +88,10 @@ endif()
 
 set(IRODS_VERSION_MAJOR "4")
 set(IRODS_VERSION_MINOR "2")
-set(IRODS_VERSION_PATCH "6")
+set(IRODS_VERSION_PATCH "8")
 set(IRODS_VERSION "${IRODS_VERSION_MAJOR}.${IRODS_VERSION_MINOR}.${IRODS_VERSION_PATCH}")
 
-set(IRODS_CXX_STANDARD 14)
+set(IRODS_CXX_STANDARD 17)
 
 set(IRODS_PLATFORM_STRING linux_platform)
 set(IRODS_COMPILE_DEFINITIONS ${IRODS_PLATFORM_STRING} _LARGEFILE_SOURCE _FILE_OFFSET_BITS=64 _LARGE_FILES _LARGEFILE64_SOURCE BOOST_SYSTEM_NO_DEPRECATED)
@@ -261,7 +274,7 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/server/re/include
   ${CMAKE_SOURCE_DIR}/server/drivers/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
   ${OPENSSL_INCLUDE_DIR}
   )
 set_target_properties(irods_filesystem_client PROPERTIES CXX_STANDARD ${IRODS_CXX_STANDARD})
@@ -290,7 +303,7 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/server/re/include
   ${CMAKE_SOURCE_DIR}/server/drivers/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
   ${OPENSSL_INCLUDE_DIR}
   )
 set_target_properties(irods_filesystem_server PROPERTIES CXX_STANDARD ${IRODS_CXX_STANDARD})
@@ -298,8 +311,88 @@ target_compile_options(irods_filesystem_server PRIVATE -fPIC -Wno-write-strings)
 target_compile_definitions(irods_filesystem_server PRIVATE ${IRODS_COMPILE_DEFINITIONS} IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API IRODS_IO_TRANSPORT_ENABLE_SERVER_SIDE_API)
 
 
+add_library(
+  irods_user_administration_client
+  OBJECT
+  ${CMAKE_SOURCE_DIR}/lib/core/src/user_administration.cpp
+  )
+target_include_directories(
+  irods_user_administration_client
+  PRIVATE
+  ${CMAKE_BINARY_DIR}/lib/core/include
+  ${CMAKE_SOURCE_DIR}/lib/core/include
+  ${CMAKE_SOURCE_DIR}/lib/api/include
+  ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  )
+set_target_properties(irods_user_administration_client PROPERTIES CXX_STANDARD ${IRODS_CXX_STANDARD})
+target_compile_options(irods_user_administration_client PRIVATE -fPIC -Wno-write-strings)
+target_compile_definitions(irods_user_administration_client PRIVATE ${IRODS_COMPILE_DEFINITIONS})
+
+add_library(
+  irods_user_administration_server
+  OBJECT
+  ${CMAKE_SOURCE_DIR}/lib/core/src/user_administration.cpp
+  )
+target_include_directories(
+  irods_user_administration_server
+  PRIVATE
+  ${CMAKE_BINARY_DIR}/lib/core/include
+  ${CMAKE_SOURCE_DIR}/lib/core/include
+  ${CMAKE_SOURCE_DIR}/lib/api/include
+  ${CMAKE_SOURCE_DIR}/server/core/include
+  ${CMAKE_SOURCE_DIR}/server/api/include
+  ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  )
+set_target_properties(irods_user_administration_server PROPERTIES CXX_STANDARD ${IRODS_CXX_STANDARD})
+target_compile_options(irods_user_administration_server PRIVATE -fPIC -Wno-write-strings)
+target_compile_definitions(irods_user_administration_server PRIVATE ${IRODS_COMPILE_DEFINITIONS} IRODS_USER_ADMINISTRATION_ENABLE_SERVER_SIDE_API)
+
+add_library(
+  irods_resource_administration_client
+  OBJECT
+  ${CMAKE_SOURCE_DIR}/lib/core/src/resource_administration.cpp
+  )
+target_include_directories(
+  irods_resource_administration_client
+  PRIVATE
+  ${CMAKE_BINARY_DIR}/lib/core/include
+  ${CMAKE_SOURCE_DIR}/lib/core/include
+  ${CMAKE_SOURCE_DIR}/lib/api/include
+  ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
+  )
+set_target_properties(irods_resource_administration_client PROPERTIES CXX_STANDARD ${IRODS_CXX_STANDARD})
+target_compile_options(irods_resource_administration_client PRIVATE -fPIC -Wno-write-strings)
+target_compile_definitions(irods_resource_administration_client PRIVATE ${IRODS_COMPILE_DEFINITIONS})
+
+add_library(
+  irods_resource_administration_server
+  OBJECT
+  ${CMAKE_SOURCE_DIR}/lib/core/src/resource_administration.cpp
+  )
+target_include_directories(
+  irods_resource_administration_server
+  PRIVATE
+  ${CMAKE_BINARY_DIR}/lib/core/include
+  ${CMAKE_SOURCE_DIR}/lib/core/include
+  ${CMAKE_SOURCE_DIR}/lib/api/include
+  ${CMAKE_SOURCE_DIR}/server/core/include
+  ${CMAKE_SOURCE_DIR}/server/api/include
+  ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
+  )
+set_target_properties(irods_resource_administration_server PROPERTIES CXX_STANDARD ${IRODS_CXX_STANDARD})
+target_compile_options(irods_resource_administration_server PRIVATE -fPIC -Wno-write-strings)
+target_compile_definitions(irods_resource_administration_server PRIVATE ${IRODS_COMPILE_DEFINITIONS} IRODS_RESOURCE_ADMINISTRATION_ENABLE_SERVER_SIDE_API)
+
 set(
   IRODS_LIBIRODS_CLIENT_SOURCES
+  ${CMAKE_SOURCE_DIR}/lib/api/src/rc_atomic_apply_acl_operations.cpp
+  ${CMAKE_SOURCE_DIR}/lib/api/src/rc_atomic_apply_metadata_operations.cpp
+  ${CMAKE_SOURCE_DIR}/lib/api/src/rc_get_file_descriptor_info.cpp
+  ${CMAKE_SOURCE_DIR}/lib/api/src/rc_data_object_modify_info.cpp
+  ${CMAKE_SOURCE_DIR}/lib/api/src/rc_replica_open.cpp
+  ${CMAKE_SOURCE_DIR}/lib/api/src/rc_replica_close.cpp
   ${CMAKE_SOURCE_DIR}/lib/api/src/rcAuthCheck.cpp
   ${CMAKE_SOURCE_DIR}/lib/api/src/rcAuthPluginRequest.cpp
   ${CMAKE_SOURCE_DIR}/lib/api/src/rcAuthRequest.cpp
@@ -439,10 +532,12 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/src/bunUtil.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/chksumUtil.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/clientLogin.cpp
+  ${CMAKE_SOURCE_DIR}/lib/core/src/client_connection.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/connection_pool.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/cpUtil.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/fsckUtil.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/getUtil.cpp
+  ${CMAKE_SOURCE_DIR}/lib/core/src/group.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_c_api.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_client_api_table.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_client_negotiation.cpp
@@ -467,8 +562,11 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/src/sockComm.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/sslSockComm.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/trimUtil.cpp
+  ${CMAKE_SOURCE_DIR}/lib/core/src/user.cpp
   $<TARGET_OBJECTS:irods_filesystem_path>
   $<TARGET_OBJECTS:irods_filesystem_client>
+  $<TARGET_OBJECTS:irods_user_administration_client>
+  $<TARGET_OBJECTS:irods_resource_administration_client>
   )
 add_library(
   irods_client
@@ -485,8 +583,8 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_regex.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
   ${IRODS_EXTERNALS_FULLPATH_ZMQ}/lib/libzmq.so
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
   ${OPENSSL_SSL_LIBRARY}
   ${OPENSSL_CRYPTO_LIBRARY}
   ${CMAKE_THREAD_LIBS_INIT}
@@ -500,12 +598,12 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/lib/hasher/include
   ${CMAKE_SOURCE_DIR}/lib/rbudp/include
   ${CMAKE_SOURCE_DIR}/lib/filesystem/include
+  ${CMAKE_SOURCE_DIR}/plugins/api/include
   ${CMAKE_SOURCE_DIR}/server/core/include
   ${CMAKE_SOURCE_DIR}/server/icat/include
   ${CMAKE_SOURCE_DIR}/server/re/include
   ${CMAKE_SOURCE_DIR}/server/drivers/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
   ${OPENSSL_INCLUDE_DIR}
   )
 set_property(TARGET irods_client PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
@@ -517,6 +615,11 @@ target_compile_definitions(irods_client PRIVATE ${IRODS_COMPILE_DEFINITIONS})
 
 set(
   IRODS_LIBIRODS_SERVER_SOURCES
+  ${CMAKE_SOURCE_DIR}/server/api/src/rs_atomic_apply_acl_operations.cpp
+  ${CMAKE_SOURCE_DIR}/server/api/src/rs_atomic_apply_metadata_operations.cpp
+  ${CMAKE_SOURCE_DIR}/server/api/src/rs_get_file_descriptor_info.cpp
+  ${CMAKE_SOURCE_DIR}/server/api/src/rs_replica_open.cpp
+  ${CMAKE_SOURCE_DIR}/server/api/src/rs_replica_close.cpp
   ${CMAKE_SOURCE_DIR}/server/api/src/rsAuthCheck.cpp
   ${CMAKE_SOURCE_DIR}/server/api/src/rsAuthPluginRequest.cpp
   ${CMAKE_SOURCE_DIR}/server/api/src/rsAuthRequest.cpp
@@ -654,8 +757,12 @@ set(
   ${CMAKE_SOURCE_DIR}/server/api/src/rsUnregDataObj.cpp
   ${CMAKE_SOURCE_DIR}/server/api/src/rsUserAdmin.cpp
   ${CMAKE_SOURCE_DIR}/server/api/src/rsZoneReport.cpp
+  ${CMAKE_SOURCE_DIR}/server/core/src/client_api_whitelist.cpp
+  ${CMAKE_SOURCE_DIR}/server/core/src/catalog.cpp
+  ${CMAKE_SOURCE_DIR}/server/core/src/catalog_utilities.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/collection.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/dataObjOpr.cpp
+  ${CMAKE_SOURCE_DIR}/server/core/src/replica_access_table.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/fileOpr.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/initServer.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/irods_api_calling_functions.cpp
@@ -695,8 +802,10 @@ set(
   ${CMAKE_SOURCE_DIR}/server/core/src/rsApiHandler.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/rsIcatOpr.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/rsLog.cpp
+  ${CMAKE_SOURCE_DIR}/server/core/src/server_utilities.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/specColl.cpp
   ${CMAKE_SOURCE_DIR}/server/core/src/xmsgLib.cpp
+  ${CMAKE_SOURCE_DIR}/server/core/src/voting.cpp
   ${CMAKE_SOURCE_DIR}/server/drivers/src/fileDriver.cpp
   ${CMAKE_SOURCE_DIR}/server/icat/src/icatHighLevelRoutines.cpp
   ${CMAKE_SOURCE_DIR}/server/re/src/extractAvuMS.cpp
@@ -725,6 +834,8 @@ set(
   ${CMAKE_SOURCE_DIR}/server/re/src/testMS.cpp
   ${CMAKE_SOURCE_DIR}/server/re/src/xmsgMS.cpp
   $<TARGET_OBJECTS:irods_filesystem_server>
+  $<TARGET_OBJECTS:irods_user_administration_server>
+  $<TARGET_OBJECTS:irods_resource_administration_server>
   )
 add_library(
   irods_server
@@ -743,7 +854,8 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_regex.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
+  ${IRODS_EXTERNALS_FULLPATH_NANODBC}/lib/libnanodbc.so
   ${IRODS_EXTERNALS_FULLPATH_ZMQ}/lib/libzmq.so
   ${OPENSSL_SSL_LIBRARY}
   ${OPENSSL_CRYPTO_LIBRARY}
@@ -760,6 +872,7 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/lib/hasher/include
   ${CMAKE_SOURCE_DIR}/lib/rbudp/include
   ${CMAKE_SOURCE_DIR}/lib/filesystem/include
+  ${CMAKE_SOURCE_DIR}/plugins/api/include
   ${CMAKE_SOURCE_DIR}/server/api/include
   ${CMAKE_SOURCE_DIR}/server/core/include
   ${CMAKE_SOURCE_DIR}/server/drivers/include
@@ -767,8 +880,9 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/server/re/include
   ${IRODS_EXTERNALS_FULLPATH_AVRO}/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
   ${IRODS_EXTERNALS_FULLPATH_CPPZMQ}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
+  ${IRODS_EXTERNALS_FULLPATH_NANODBC}/include
   ${IRODS_EXTERNALS_FULLPATH_ZMQ}/include
   ${OPENSSL_INCLUDE_DIR}
   )
@@ -776,7 +890,8 @@ set_property(TARGET irods_server PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
 set_property(TARGET irods_server PROPERTY VERSION ${IRODS_VERSION})
 set_property(TARGET irods_server PROPERTY SOVERSION ${IRODS_VERSION})
 target_compile_definitions(irods_server PRIVATE ENABLE_RE RODS_CLERVER ${IRODS_COMPILE_DEFINITIONS})
-target_compile_options(irods_server PRIVATE -Wno-write-strings)
+# TODO: remove -Wno-ignored-qualifiers on resolution of https://github.com/nanodbc/nanodbc/pull/234
+target_compile_options(irods_server PRIVATE -Wno-write-strings -Wno-ignored-qualifiers)
 
 
 set(
@@ -843,7 +958,7 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_random.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_regex.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
   ${OPENSSL_SSL_LIBRARY}
   ${OPENSSL_CRYPTO_LIBRARY}
   ${CMAKE_DL_LIBS}
@@ -861,8 +976,8 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/server/icat/include
   ${CMAKE_SOURCE_DIR}/server/re/include
   ${CMAKE_SOURCE_DIR}/server/drivers/include
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
   )
 set_property(TARGET irods_common PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
 set_property(TARGET irods_common PROPERTY VERSION ${IRODS_VERSION})
@@ -916,7 +1031,6 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/server/re/include
   ${CMAKE_SOURCE_DIR}/server/drivers/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
   )
 set_property(TARGET irods_plugin_dependencies PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
 set_property(TARGET irods_plugin_dependencies PROPERTY VERSION ${IRODS_VERSION})
@@ -1076,6 +1190,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/src/fsckUtil.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/getRodsEnv.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/getUtil.cpp
+  ${CMAKE_SOURCE_DIR}/lib/core/src/group.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/hashtable.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_auth_factory.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/irods_auth_manager.cpp
@@ -1150,6 +1265,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/src/sslSockComm.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/stringOpr.cpp
   ${CMAKE_SOURCE_DIR}/lib/core/src/trimUtil.cpp
+  ${CMAKE_SOURCE_DIR}/lib/core/src/user.cpp
   )
 
 set(
@@ -1182,6 +1298,11 @@ add_library(
   ${IRODS_LIB_CLIENT_EXEC_SOURCES}
   $<TARGET_OBJECTS:irods_filesystem_path>
   $<TARGET_OBJECTS:irods_filesystem_client>
+  $<TARGET_OBJECTS:irods_filesystem_server>
+  $<TARGET_OBJECTS:irods_user_administration_client>
+  $<TARGET_OBJECTS:irods_user_administration_server>
+  $<TARGET_OBJECTS:irods_resource_administration_client>
+  $<TARGET_OBJECTS:irods_resource_administration_server>
   )
 target_link_libraries(
   RodsAPIs
@@ -1191,7 +1312,7 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_regex.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
   ${OPENSSL_SSL_LIBRARY}
   ${OPENSSL_CRYPTO_LIBRARY}
   ${CMAKE_DL_LIBS}
@@ -1210,7 +1331,8 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/server/re/include
   ${CMAKE_SOURCE_DIR}/server/drivers/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
+  ${IRODS_EXTERNALS_FULLPATH_JSON}/include
   ${OPENSSL_INCLUDE_DIR}
   )
 set_property(TARGET RodsAPIs PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
@@ -1258,7 +1380,6 @@ foreach(EXECUTABLE ${IRODS_MAIN_EXECUTABLES})
     ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_regex.so
     ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
     ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_chrono.so
-    ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
     ${IRODS_EXTERNALS_FULLPATH_AVRO}/lib/libavrocpp.so
     ${IRODS_EXTERNALS_FULLPATH_ZMQ}/lib/libzmq.so
     ${OPENSSL_CRYPTO_LIBRARY}
@@ -1281,7 +1402,6 @@ foreach(EXECUTABLE ${IRODS_MAIN_EXECUTABLES})
     ${CMAKE_SOURCE_DIR}/lib/api/include
     ${CMAKE_SOURCE_DIR}/lib/rbudp/include
     ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-    ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
     ${IRODS_EXTERNALS_FULLPATH_AVRO}/include
     ${IRODS_EXTERNALS_FULLPATH_ZMQ}/include
     ${IRODS_EXTERNALS_FULLPATH_CPPZMQ}/include
@@ -1310,7 +1430,7 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
   rt
   ${CMAKE_THREAD_LIBS_INIT}
   ${CMAKE_DL_LIBS}
@@ -1327,7 +1447,7 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/lib/core/include
   ${CMAKE_SOURCE_DIR}/lib/api/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
   )
 set_property(TARGET irodsReServer PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
 target_compile_definitions(irodsReServer PRIVATE ${IRODS_COMPILE_DEFINITIONS})
@@ -1367,7 +1487,6 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_regex.so
-  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
   ${IRODS_EXTERNALS_FULLPATH_ZMQ}/lib/libzmq.so
   )
 set_property(TARGET genOSAuth PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
@@ -1446,10 +1565,8 @@ set(CPACK_RPM_${IRODS_PACKAGE_COMPONENT_POSTGRES_NAME}_POST_UNINSTALL_SCRIPT_FIL
 
 # mysql
 set(CPACK_DEBIAN_${IRODS_PACKAGE_COMPONENT_MYSQL_NAME_UPPERCASE}_PACKAGE_NAME "irods-database-plugin-mysql")
-if (IRODS_LINUX_DISTRIBUTION_NAME STREQUAL "ubuntu" AND IRODS_LINUX_DISTRIBUTION_VERSION_MAJOR STREQUAL "16")
+if (IRODS_LINUX_DISTRIBUTION_NAME STREQUAL "ubuntu")
   set(CPACK_DEBIAN_${IRODS_PACKAGE_COMPONENT_MYSQL_NAME_UPPERCASE}_PACKAGE_DEPENDS "${IRODS_PACKAGE_DEPENDENCIES_STRING}, irods-server (= ${CPACK_DEBIAN_PACKAGE_VERSION}), unixodbc, mysql-client, libc6")
-else()
-  set(CPACK_DEBIAN_${IRODS_PACKAGE_COMPONENT_MYSQL_NAME_UPPERCASE}_PACKAGE_DEPENDS "${IRODS_PACKAGE_DEPENDENCIES_STRING}, irods-server (= ${CPACK_DEBIAN_PACKAGE_VERSION}), unixodbc, libmyodbc, mysql-client, libc6")
 endif()
 set(CPACK_DEBIAN_${IRODS_PACKAGE_COMPONENT_MYSQL_NAME_UPPERCASE}_PACKAGE_CONTROL_EXTRA "${CMAKE_SOURCE_DIR}/plugins/database/packaging/preinst;${CMAKE_SOURCE_DIR}/plugins/database/packaging/postinst;${CMAKE_SOURCE_DIR}/plugins/database/packaging/postrm;")
 
