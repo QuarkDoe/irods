@@ -1,114 +1,96 @@
-/*
- * irods_server_properties.hpp
- *
- *  Created on: Jan 15, 2014
- *      Author: adt
- */
-
 #ifndef IRODS_SERVER_PROPERTIES_HPP_
 #define IRODS_SERVER_PROPERTIES_HPP_
 
+/// \file
 
-#include "irods_exception.hpp"
-#include "irods_error.hpp"
 #include "irods_configuration_parser.hpp"
 #include "irods_configuration_keywords.hpp"
+#include "irods_error.hpp"
 #include "irods_exception.hpp"
 
-#include <boost/format.hpp>
-#include <boost/any.hpp>
-#include <map>
+#include <string>
 
-namespace irods {
+namespace irods
+{
+    /// @brief kw for server property map storing strict acl configuration
+    extern const std::string STRICT_ACL_KW;
 
-/// @brief kw for server property map storing strict acl configuration
-    const std::string STRICT_ACL_KW( "strict_acls" );
+    /// @brief kw for server property map stating this is an agent-agent conn
+    extern const std::string AGENT_CONN_KW;
 
-/// @brief kw for server property map stating this is an agent-agent conn
-    const std::string AGENT_CONN_KW( "agent_conn" );
+    /// @brief kw for server property map for encryption key
+    extern const std::string AGENT_KEY_KW;
 
-/// @brief kw for server property map for encryption key
-    const std::string AGENT_KEY_KW( "agent_key" );
+    /// @brief kw for storing the process id of the rule engine server
+    extern const std::string RE_PID_KW;
 
-/// @brief kw for storing the process id of the rule engine server
-    const std::string RE_PID_KW( "rule_engine_process_id" );
+    /// @brief kw for storing client user name
+    extern const std::string CLIENT_USER_NAME_KW;
 
-/// @brief kw for storing client user name
-    const std::string CLIENT_USER_NAME_KW( "client_user_name" );
+    /// @brief kw for storing client user  zone
+    extern const std::string CLIENT_USER_ZONE_KW;
 
-/// @brief kw for storing client user  zone
-    const std::string CLIENT_USER_ZONE_KW( "client_user_zone" );
+    /// @brief kw for storing client user priv
+    extern const std::string CLIENT_USER_PRIV_KW;
 
-/// @brief kw for storing client user priv
-    const std::string CLIENT_USER_PRIV_KW( "client_user_priv" );
+    /// @brief kw for storing proxy user name
+    extern const std::string PROXY_USER_NAME_KW;
 
-/// @brief kw for storing proxy user name
-    const std::string PROXY_USER_NAME_KW( "proxy_user_name" );
+    /// @brief kw for storing proxy user  zone
+    extern const std::string PROXY_USER_ZONE_KW;
 
-/// @brief kw for storing proxy user  zone
-    const std::string PROXY_USER_ZONE_KW( "proxy_user_zone" );
+    /// @brief kw for storing proxy user priv
+    extern const std::string PROXY_USER_PRIV_KW;
 
-/// @brief kw for storing proxy user priv
-    const std::string PROXY_USER_PRIV_KW( "proxy_user_priv" );
+    extern const std::string SERVER_CONFIG_FILE;
 
-    const std::string SERVER_CONFIG_FILE( "server_config.json" );
+    class server_properties
+    {
+    public:
+        /// @brief The singleton
+        static server_properties& instance();
 
-    class server_properties {
-        public:
+        /// @brief Read server configuration and fill server_properties::properties
+        void capture();
 
-            /**
-            * @brief The singleton
-            */
-            static server_properties& instance();
+        /// @brief capture server_config.json
+        void capture_json(const std::string& _filename);
 
-            /**
-             * @brief Read server configuration and fill server_properties::properties
-             */
-            void capture();
+        template< typename T >
+        T& get_property( const std::string& _key ) {
+            return config_props_.get< T >( _key );
+        }
 
-            /**
-             * @brief capture server_config.json
-             */
-            void capture_json( const std::string& );
+        template< typename T>
+        T& get_property( const configuration_parser::key_path_t& _keys ) {
+            return config_props_.get<T>( _keys );
+        }
 
-            template< typename T >
-            T& get_property( const std::string& _key ) {
-                return config_props_.get< T >( _key );
-            }
+        template< typename T >
+        T& set_property( const std::string& _key, const T& _val ) {
+            return config_props_.set< T >( _key, _val );
+        }
 
-            template< typename T>
-            T& get_property( const configuration_parser::key_path_t& _keys ) {
-                return config_props_.get<T>( _keys );
-            }
+        template< typename T>
+        T& set_property( const configuration_parser::key_path_t& _keys, const T& _val ) {
+            return config_props_.set<T>( _keys, _val );
+        }
 
-            template< typename T >
-            T& set_property( const std::string& _key, const T& _val ) {
-                return config_props_.set< T >( _key, _val );
-            }
+        template<typename T>
+        T remove( const std::string& _key ) {
+            return config_props_.remove<T>( _key );
+        }
 
-            template< typename T>
-            T& set_property( const configuration_parser::key_path_t& _keys, const T& _val ) {
-                return config_props_.set<T>( _keys, _val );
-            }
+        void remove( const std::string& _key );
 
-            template<typename T>
-            T remove( const std::string& _key ) {
-                return config_props_.remove<T>( _key );
-            }
+    private:
+        server_properties();
 
-            void remove( const std::string& _key );
+        server_properties( server_properties const& ) = delete;
+        server_properties& operator=( server_properties const& ) = delete;
 
-        private:
-            // Disable constructors
-            server_properties( server_properties const& );
-            server_properties( );
-            void operator=( server_properties const& );
-
-            /**
-             * @brief properties lookup table
-             */
-            configuration_parser config_props_;
-
+        /// @brief properties lookup table
+        configuration_parser config_props_;
     }; // class server_properties
 
     template< typename T >
@@ -143,6 +125,50 @@ namespace irods {
         return irods::get_server_property<T>(configuration_parser::key_path_t{CFG_ADVANCED_SETTINGS_KW, _prop});
     } // get_advanced_setting
 
+    /// Returns the amount of shared memory that should be allocated for the DNS cache.
+    ///
+    /// \return An integer representing the size in bytes.
+    /// \retval 5000000          If an error occurred or the size was less than or equal to zero.
+    /// \retval Configured-Value Otherwise.
+    ///
+    /// \since 4.2.9
+    auto get_dns_cache_shared_memory_size() noexcept -> int;
+
+    /// Returns the DNS cache eviction age from server_config.json.
+    ///
+    /// \return An integer representing seconds.
+    /// \retval 3600             If an error occurred or the age was less than zero.
+    /// \retval Configured-Value Otherwise.
+    ///
+    /// \since 4.2.9
+    auto get_dns_cache_eviction_age() noexcept -> int;
+
+    /// Returns the amount of shared memory that should be allocated for the Hostname cache.
+    ///
+    /// \return An integer representing the size in bytes.
+    /// \retval 2500000          If an error occurred or the size was less than or equal to zero.
+    /// \retval Configured-Value Otherwise.
+    ///
+    /// \since 4.2.9
+    auto get_hostname_cache_shared_memory_size() noexcept -> int;
+
+    /// Returns the hostname cache eviction age from server_config.json.
+    ///
+    /// \return An integer representing seconds.
+    /// \retval 3600             If an error occurred or the age was less than zero.
+    /// \retval Configured-Value Otherwise.
+    ///
+    /// \since 4.2.9
+    auto get_hostname_cache_eviction_age() noexcept -> int;
+
+    /// Parses hosts_config.json into a JSON object if available and stores it in the server
+    /// property map with key \p irods::HOSTS_CONFIG_JSON_OBJECT_KW.
+    ///
+    /// The type of the mapped JSON object is nlohmann::json.
+    ///
+    /// \since 4.2.9
+    auto parse_and_store_hosts_configuration_file_as_json() noexcept -> void;
 } // namespace irods
 
-#endif /* IRODS_SERVER_PROPERTIES_HPP_ */
+#endif // IRODS_SERVER_PROPERTIES_HPP_
+

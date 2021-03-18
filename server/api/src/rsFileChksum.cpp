@@ -165,7 +165,7 @@ int fileChksum(
 
     rodsLog(
         LOG_DEBUG,
-        "fileChksum :: final_scheme [%s]  chkstr_scheme [%s]  svr_hash_policy [%s]  hash_policy [%s]",
+        "fileChksum :: final_scheme [%s]  chkstr_scheme [%s]  hash_policy [%s]",
         final_scheme.c_str(),
         chkstr_scheme.c_str(),
         hash_policy.c_str() );
@@ -224,7 +224,7 @@ int fileChksum(
         return result.code();
     }
     int bytes_read = read_err.code();
-
+    
     // RTS - Issue #3275
     if ( bytes_read == 0 ) {
         std::string buffer_read;

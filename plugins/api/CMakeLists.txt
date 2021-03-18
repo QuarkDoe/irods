@@ -162,6 +162,34 @@ set(
   irods_client
   )
 
+# data_object_finalize API
+set(
+  IRODS_API_PLUGIN_SOURCES_irods_data_object_finalize_server
+  ${CMAKE_SOURCE_DIR}/plugins/api/src/data_object_finalize.cpp
+  )
+
+set(
+  IRODS_API_PLUGIN_SOURCES_irods_data_object_finalize_client
+  ${CMAKE_SOURCE_DIR}/plugins/api/src/data_object_finalize.cpp
+  )
+
+set(
+  IRODS_API_PLUGIN_COMPILE_DEFINITIONS_irods_data_object_finalize_server
+  RODS_SERVER
+  ENABLE_RE
+  IRODS_ENABLE_SYSLOG
+  )
+
+set(
+  IRODS_API_PLUGIN_COMPILE_DEFINITIONS_irods_data_object_finalize_client
+  )
+
+set(
+  IRODS_API_PLUGIN_LINK_LIBRARIES_irods_data_object_finalize_server
+  irods_server
+  ${IRODS_EXTERNALS_FULLPATH_NANODBC}/lib/libnanodbc.so
+  )
+
 # experimental_api_plugin_adaptor API
 set(
   IRODS_API_PLUGIN_SOURCES_experimental_api_plugin_adaptor_server
@@ -260,6 +288,38 @@ set(
   irods_client
   )
 
+# touch API
+set(
+  IRODS_API_PLUGIN_SOURCES_irods_touch_server
+  ${CMAKE_SOURCE_DIR}/plugins/api/src/touch.cpp
+  )
+
+set(
+  IRODS_API_PLUGIN_SOURCES_irods_touch_client
+  ${CMAKE_SOURCE_DIR}/plugins/api/src/touch.cpp
+  )
+
+set(
+  IRODS_API_PLUGIN_COMPILE_DEFINITIONS_irods_touch_server
+  RODS_SERVER
+  ENABLE_RE
+  IRODS_ENABLE_SYSLOG
+  )
+
+set(
+  IRODS_API_PLUGIN_COMPILE_DEFINITIONS_irods_touch_client
+  )
+
+set(
+  IRODS_API_PLUGIN_LINK_LIBRARIES_irods_touch_server
+  irods_server
+  )
+
+set(
+  IRODS_API_PLUGIN_LINK_LIBRARIES_irods_touch_client
+  irods_client
+  )
+
 set(
   IRODS_API_PLUGINS
   experimental_api_plugin_adaptor_client
@@ -270,6 +330,8 @@ set(
   irods_atomic_apply_acl_operations_server
   irods_atomic_apply_metadata_operations_client
   irods_atomic_apply_metadata_operations_server
+  irods_data_object_finalize_client
+  irods_data_object_finalize_server
   irods_data_object_modify_info_client
   irods_data_object_modify_info_server
   irods_get_file_descriptor_info_client
@@ -278,6 +340,8 @@ set(
   irods_replica_close_server
   irods_replica_open_client
   irods_replica_open_server
+  irods_touch_client
+  irods_touch_server
   )
 
 foreach(PLUGIN ${IRODS_API_PLUGINS})
@@ -322,7 +386,6 @@ foreach(PLUGIN ${IRODS_API_PLUGINS})
 
   target_compile_definitions(${PLUGIN} PRIVATE ${IRODS_API_PLUGIN_COMPILE_DEFINITIONS_${PLUGIN}} ${IRODS_COMPILE_DEFINITIONS})
   target_compile_options(${PLUGIN} PRIVATE -Wno-write-strings -Wno-ignored-qualifiers)
-  set_property(TARGET ${PLUGIN} PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
 endforeach()
 
 install(

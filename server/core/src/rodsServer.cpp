@@ -1,22 +1,13 @@
-/*** Copyright (c), The Regents of the University of California            ***
- *** For more information please refer to files in the COPYRIGHT directory ***/
-
 #include "irods_at_scope_exit.hpp"
+#include "irods_configuration_keywords.hpp"
+#include "irods_configuration_parser.hpp"
+#include "irods_get_full_path_for_config_file.hpp"
 #include "rcMisc.h"
+#include "rodsErrorTable.h"
 #include "rodsServer.hpp"
 #include "sharedmemory.hpp"
 #include "initServer.hpp"
 #include "miscServerFunct.hpp"
-
-#include "irods_logger.hpp"
-
-#include <pthread.h>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
-// =-=-=-=-=-=-=-
 #include "irods_exception.hpp"
 #include "irods_server_state.hpp"
 #include "irods_client_server_negotiation.hpp"
@@ -29,19 +20,43 @@
 #include "rsGlobalExtern.hpp"
 #include "locks.hpp"
 #include "sharedmemory.hpp"
+#include "sockCommNetworkInterface.hpp"
+#include "irods_random.hpp"
+#include "replica_access_table.hpp"
+#include "irods_logger.hpp"
+#include "hostname_cache.hpp"
+#include "dns_cache.hpp"
+#include "server_utilities.hpp"
+
+#include <pthread.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/convenience.hpp>
 #include <boost/range/iterator_range.hpp>
+#include <boost/thread/thread.hpp>
+#include <boost/thread/mutex.hpp>
+#include <boost/thread/condition.hpp>
+
+#include <fmt/format.h>
+#include <json.hpp>
+
+#include <fstream>
+#include <regex>
+#include <algorithm>
+#include <iterator>
+
+// clang-format off
+namespace ix   = irods::experimental;
+namespace hnc  = irods::experimental::net::hostname_cache;
+namespace dnsc = irods::experimental::net::dns_cache;
+// clang-format on
+
 using namespace boost::filesystem;
-
-#include "sockCommNetworkInterface.hpp"
-
-#include "sys/un.h"
-
-#include "irods_random.hpp"
-#include "replica_access_table.hpp"
 
 struct sockaddr_un local_addr{};
 int agent_conn_socket{};
@@ -60,9 +75,6 @@ agentProc_t *ConnReqHead = NULL;
 agentProc_t *SpawnReqHead = NULL;
 agentProc_t *BadReqHead = NULL;
 
-#include <boost/thread/thread.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/thread/condition.hpp>
 boost::mutex              ConnectedAgentMutex;
 boost::mutex              BadReqMutex;
 boost::thread*            ReadWorkerThread[NUM_READ_WORKER_THR];
@@ -84,12 +96,13 @@ int queueConnectedAgentProc(
     agentProc_t *connReq,
     agentProc_t **agentProcHead);
 
-namespace {
-// We incorporate the cache salt into the rule engine's named_mutex and shared memory object.
-// This prevents (most of the time) an orphaned mutex from halting server standup. Issue most often seen
-// when a running iRODS installation is uncleanly killed (leaving the file system object used to implement
-// boost::named_mutex e.g. in /var/run/shm) and then the iRODS user account is recreated, yielding a different
-// UID. The new iRODS user account is then unable to unlock or remove the existing mutex, blocking the server.
+namespace
+{
+    // We incorporate the cache salt into the rule engine's named_mutex and shared memory object.
+    // This prevents (most of the time) an orphaned mutex from halting server standup. Issue most often seen
+    // when a running iRODS installation is uncleanly killed (leaving the file system object used to implement
+    // boost::named_mutex e.g. in /var/run/shm) and then the iRODS user account is recreated, yielding a different
+    // UID. The new iRODS user account is then unable to unlock or remove the existing mutex, blocking the server.
     irods::error createAndSetRECacheSalt() {
         // Should only ever set the cache salt once
         try {
@@ -148,7 +161,83 @@ namespace {
         snprintf( buf, num_hex_bytes + 1, "%s", ss.str().c_str() );
         return 0;
     }
-}
+
+    void init_logger(bool _write_to_stdout = false, bool _enable_test_mode = false)
+    {
+        ix::log::init(_write_to_stdout, _enable_test_mode);
+        irods::server_properties::instance().capture();
+        ix::log::server::set_level(ix::log::get_level_from_config(irods::CFG_LOG_LEVEL_CATEGORY_SERVER_KW));
+        ix::log::set_server_type("server");
+
+        if (char hostname[HOST_NAME_MAX]{}; gethostname(hostname, sizeof(hostname)) == 0) {
+            ix::log::set_server_host(hostname);
+        }
+    }
+
+
+    void remove_leftover_rulebase_pid_files() noexcept
+    {
+        namespace fs = boost::filesystem;
+
+        try {
+            // Find the server configuration file.
+            std::string config_path;
+
+            if (const auto err = irods::get_full_path_for_config_file("server_config.json", config_path); !err.ok()) {
+                ix::log::server::error("Could not locate server_config.json. Cannot remove leftover rulebase files.");
+                return;
+            }
+
+            // Load the server configuration file in as JSON.
+            nlohmann::json config;
+
+            if (std::ifstream in{config_path}; in) {
+                in >> config;
+            }
+            else {
+                ix::log::server::error("Could not open server configuration file. Cannot remove leftover rulebase files.");
+                return;
+            }
+
+            // Find the NREP.
+            const auto& plugin_config = config.at(irods::CFG_PLUGIN_CONFIGURATION_KW);
+            const auto& rule_engines = plugin_config.at(irods::PLUGIN_TYPE_RULE_ENGINE);
+
+            const auto end = std::end(rule_engines);
+            const auto nrep = std::find_if(std::begin(rule_engines), end, [](const nlohmann::json& _object) {
+                return _object.at(irods::CFG_PLUGIN_NAME_KW).get<std::string>() == "irods_rule_engine_plugin-irods_rule_language";
+            });
+
+            // Get the rulebase set.
+            const auto& plugin_specific_config = nrep->at(irods::CFG_PLUGIN_SPECIFIC_CONFIGURATION_KW);
+            const auto& rulebase_set = plugin_specific_config.at(irods::CFG_RE_RULEBASE_SET_KW);
+
+            // Iterate over the list of rulebases and remove the leftover PID files.
+            for (const auto& rb : rulebase_set) {
+                // Create a pattern based on the rulebase's filename. The pattern will have the following format:
+                //
+                //    .+/<rulebase_name>\.re\.\d+
+                //
+                // Where <rulebase_name> is a placeholder for the target rulebase.
+                std::string pattern_string = ".+/";
+                pattern_string += rb.get<std::string>();
+                pattern_string += R"_(\.re\.\d+)_";
+
+                const std::regex pattern{pattern_string};
+
+                for (const auto& p : fs::directory_iterator{irods::get_irods_config_directory()}) {
+                    if (std::regex_match(p.path().c_str(), pattern)) {
+                        try {
+                            fs::remove(p);
+                        }
+                        catch (...) {}
+                    }
+                }
+            }
+        }
+        catch (...) {}
+    }
+} // anonymous namespace
 
 static void set_agent_spawner_process_name(const InformationRequiredToSafelyRenameProcess& info) {
     const char* desired_name = "irodsServer: factory";
@@ -157,24 +246,6 @@ static void set_agent_spawner_process_name(const InformationRequiredToSafelyRena
         strncpy(info.argv0, desired_name, info.argv0_size);
     }
 }
-
-namespace {
-
-void init_logger(bool _write_to_stdout = false, bool _enable_test_mode = false)
-{
-    using log = irods::experimental::log;
-
-    log::init(_write_to_stdout, _enable_test_mode);
-    irods::server_properties::instance().capture();
-    log::server::set_level(log::get_level_from_config(irods::CFG_LOG_LEVEL_CATEGORY_SERVER_KW));
-    log::set_server_type("server");
-
-    if (char hostname[HOST_NAME_MAX]{}; gethostname(hostname, sizeof(hostname)) == 0) {
-        log::set_server_host(hostname);
-    }
-}
-
-} // anonymous namespace
 
 void daemonize()
 {
@@ -197,8 +268,7 @@ void daemonize()
     open("/dev/null", O_RDWR);
 }
 
-int
-main( int argc, char **argv )
+int main(int argc, char** argv)
 {
     int c;
     char tmpStr1[100], tmpStr2[100];
@@ -263,8 +333,32 @@ main( int argc, char **argv )
 
     init_logger(write_to_stdout, enable_test_mode);
 
-    irods::experimental::replica_access_table::init();
-    irods::at_scope_exit deinit_fd_table{[] { irods::experimental::replica_access_table::deinit(); }};
+    ix::log::server::info("Initializing server ...");
+
+    hnc::init("irods_hostname_cache", irods::get_hostname_cache_shared_memory_size());
+    irods::at_scope_exit deinit_hostname_cache{[] { hnc::deinit(); }};
+
+    dnsc::init("irods_dns_cache", irods::get_dns_cache_shared_memory_size());
+    irods::at_scope_exit deinit_dns_cache{[] { dnsc::deinit(); }};
+
+    ix::replica_access_table::init();
+    irods::at_scope_exit deinit_replica_access_table{[] { ix::replica_access_table::deinit(); }};
+
+    remove_leftover_rulebase_pid_files();
+
+    irods::parse_and_store_hosts_configuration_file_as_json();
+
+    using key_path_t = irods::configuration_parser::key_path_t;
+
+    // Set the default value for evicting DNS cache entries.
+    irods::set_server_property(
+        key_path_t{irods::CFG_ADVANCED_SETTINGS_KW, irods::CFG_DNS_CACHE_KW, irods::CFG_EVICTION_AGE_IN_SECONDS_KW},
+        irods::get_dns_cache_eviction_age());
+
+    // Set the default value for evicting hostname cache entries.
+    irods::set_server_property(
+        key_path_t{irods::CFG_ADVANCED_SETTINGS_KW, irods::CFG_HOSTNAME_CACHE_KW, irods::CFG_EVICTION_AGE_IN_SECONDS_KW},
+        irods::get_hostname_cache_eviction_age());
 
     /* start of irodsReServer has been moved to serverMain */
     signal( SIGTTIN, SIG_IGN );
@@ -299,37 +393,40 @@ main( int argc, char **argv )
     snprintf(agent_factory_socket_file, sizeof(agent_factory_socket_file), "%s/irods_factory_%s", agent_factory_socket_dir, random_suffix);
     snprintf(local_addr.sun_path, sizeof(local_addr.sun_path), "%s", agent_factory_socket_file);
 
+    ix::log::server::info("Forking agent factory ...");
+
     agent_spawning_pid = fork();
 
-    if ( agent_spawning_pid == 0 ) {
-        // Agent factory process (parent)
+    if (agent_spawning_pid == 0) {
+        // Agent factory process (child)
         ProcessType = AGENT_PT;
         return runIrodsAgentFactory( local_addr );
-    } else if ( agent_spawning_pid > 0 ) {
-        // Main iRODS server (grandparent)
-        rodsLog( LOG_NOTICE, "Agent factory process pid = [%d]", agent_spawning_pid );
-
-        // Create a UNIX domain socket and connect to the iRODS agent factory.
-        agent_conn_socket = socket( AF_UNIX, SOCK_STREAM, 0 );
-
-        time_t sock_connect_start_time = time( 0 );
-        while (true) {
-            const unsigned int len = sizeof(local_addr);
-            ssize_t status = connect( agent_conn_socket, (const struct sockaddr*) &local_addr, len );
-            if ( status >= 0 ) {
-                break;
-            }
-
-            int saved_errno = errno;
-            if ( ( time( 0 ) - sock_connect_start_time ) > 5 ) {
-                rodsLog(LOG_ERROR, "Error connecting to agent factory socket, errno = [%d]: %s", saved_errno, strerror( saved_errno ) );
-                return SYS_SOCK_CONNECT_ERR;
-            }
-        }
-    } else {
-        // Error, fork failed
+    }
+    
+    // Main iRODS server (parent)
+    if (agent_spawning_pid < 0) {
         rodsLog( LOG_ERROR, "fork() failed when attempting to create agent factory process" );
         return SYS_FORK_ERROR;
+    }
+
+    ix::log::server::info("Agent factory PID = [{}]", agent_spawning_pid);
+
+    // Create a UNIX domain socket and connect to the iRODS agent factory.
+    agent_conn_socket = socket( AF_UNIX, SOCK_STREAM, 0 );
+
+    time_t sock_connect_start_time = time( 0 );
+    while (true) {
+        const unsigned int len = sizeof(local_addr);
+        ssize_t status = connect( agent_conn_socket, (const struct sockaddr*) &local_addr, len );
+        if ( status >= 0 ) {
+            break;
+        }
+
+        int saved_errno = errno;
+        if ( ( time( 0 ) - sock_connect_start_time ) > 5 ) {
+            rodsLog(LOG_ERROR, "Error connecting to agent factory socket, errno = [%d]: %s", saved_errno, strerror( saved_errno ) );
+            return SYS_SOCK_CONNECT_ERR;
+        }
     }
 
     return serverMain(enable_test_mode, write_to_stdout);
@@ -470,10 +567,8 @@ int serverMain(
                 // Wake up the agent factory process so it can clean up and exit
                 kill( agent_spawning_pid, SIGTERM );
 
-                rodsLog(
-                    LOG_NOTICE,
-                    "iRODS Server is exiting with state [%s].",
-                    the_server_state.c_str() );
+                rodsLog( LOG_NOTICE, "iRODS Server is exiting with state [%s].", the_server_state.c_str() );
+
                 break;
 
             }
@@ -595,7 +690,7 @@ int serverMain(
     unlink( agent_factory_socket_file );
     rmdir( agent_factory_socket_dir );
 
-    rodsLog( LOG_NOTICE, "iRODS Server is done." );
+    ix::log::server::info("iRODS Server is done.");
 
     return return_code;
 }
@@ -1166,8 +1261,7 @@ int initServerMain(
     memset( svrComm, 0, sizeof( *svrComm ) );
     int status = getRodsEnv( &svrComm->myEnv );
     if ( status < 0 ) {
-        rodsLog( LOG_ERROR, "initServerMain: getRodsEnv error. status = %d",
-                 status );
+        rodsLog( LOG_ERROR, "initServerMain: getRodsEnv error. status = %d", status );
         return status;
     }
     initAndClearProcLog();
@@ -1177,8 +1271,7 @@ int initServerMain(
     status = initServer( svrComm );
 
     if ( status < 0 ) {
-        rodsLog( LOG_ERROR, "initServerMain: initServer error. status = %d",
-                 status );
+        rodsLog( LOG_ERROR, "initServerMain: initServer error. status = %d", status );
         exit( 1 );
     }
 
@@ -1186,58 +1279,58 @@ int initServerMain(
     int zone_port;
     try {
         zone_port = irods::get_server_property<const int>(irods::CFG_ZONE_PORT);
-    } catch ( irods::exception& e ) {
+    }
+    catch ( irods::exception& e ) {
         irods::log( irods::error(e) );
         return e.code();
     }
-    svrComm->sock = sockOpenForInConn(
-            svrComm,
-            &zone_port,
-            NULL,
-            SOCK_STREAM );
+
+    svrComm->sock = sockOpenForInConn( svrComm, &zone_port, NULL, SOCK_STREAM );
     if ( svrComm->sock < 0 ) {
-        rodsLog( LOG_ERROR,
-                "initServerMain: sockOpenForInConn error. status = %d",
-                svrComm->sock );
+        rodsLog( LOG_ERROR, "initServerMain: sockOpenForInConn error. status = %d", svrComm->sock );
         return svrComm->sock;
     }
 
     if ( listen( svrComm->sock, MAX_LISTEN_QUE ) < 0 ) {
-        rodsLog( LOG_ERROR,
-                 "initServerMain: listen failed, errno: %d",
-                 errno );
+        rodsLog( LOG_ERROR, "initServerMain: listen failed, errno: %d", errno );
         return SYS_SOCK_LISTEN_ERR;
     }
 
-    rodsLog( LOG_NOTICE,
-             "rodsServer Release version %s - API Version %s is up",
-             RODS_REL_VERSION, RODS_API_VERSION );
+    ix::log::server::info("rodsServer Release version {} - API Version {} is up", RODS_REL_VERSION, RODS_API_VERSION);
 
     /* Record port, pid, and cwd into a well-known file */
-    recordServerProcess( svrComm );
-    /* start the irodsReServer */
-    rodsServerHost_t *reServerHost = NULL;
-    getReHost( &reServerHost );
-    if ( reServerHost != NULL && reServerHost->localFlag == LOCAL_HOST ) {
-        int re_pid = RODS_FORK();
-        if ( re_pid == 0 ) { // child
+    recordServerProcess(svrComm);
 
-            close( svrComm->sock );
-            std::vector<char *> av;
-            av.push_back( "irodsReServer" );
+    rodsServerHost_t* reServerHost{};
+    getReHost(&reServerHost);
+
+    if (reServerHost && LOCAL_HOST == reServerHost->localFlag) {
+        rodsLog(LOG_NOTICE, "Forking Rule Execution Server (irodsReServer) ...");
+
+        const int pid = RODS_FORK();
+        
+        if (pid == 0) {
+            close(svrComm->sock);
+
+            std::vector<char*> argv;
+            argv.push_back("irodsReServer");
+
             if (enable_test_mode) {
-                av.push_back("-t");
+                argv.push_back("-t");
             }
+
             if (write_to_stdout) {
-                av.push_back("-u");
+                argv.push_back("-u");
             }
-            av.push_back( NULL );
-            rodsLog( LOG_NOTICE, "Starting irodsReServer" );
-            execv( av[0], &av[0] );
-            exit( 1 );
+
+            argv.push_back(nullptr);
+
+            // Launch the delay server!
+            execv(argv[0], &argv[0]);
+            exit(1);
         }
         else {
-            irods::set_server_property<int>( irods::RE_PID_KW, re_pid );
+            irods::set_server_property<int>(irods::RE_PID_KW, pid);
         }
     }
 

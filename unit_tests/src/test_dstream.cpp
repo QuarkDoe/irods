@@ -1,12 +1,13 @@
 #include "catch.hpp"
 
-#include "rodsClient.h"
 #include "connection_pool.hpp"
 #include "dstream.hpp"
-#include "transport/default_transport.hpp"
 #include "filesystem.hpp"
-#include "irods_query.hpp"
 #include "irods_at_scope_exit.hpp"
+#include "irods_query.hpp"
+#include "replica.hpp"
+#include "rodsClient.h"
+#include "transport/default_transport.hpp"
 
 #include <boost/filesystem.hpp>
 #include <fmt/format.h>
@@ -91,7 +92,7 @@ TEST_CASE("dstream", "[iostreams]")
         }
 
         REQUIRE(fs::client::exists(conn, path));
-        REQUIRE(fs::client::data_object_size(conn, path) == message.size());
+        REQUIRE(irods::experimental::replica::replica_size<rcComm_t>(conn, path, 0) == message.size());
 
         // Verify that the data object contains the expected message.
         {
@@ -110,7 +111,7 @@ TEST_CASE("dstream", "[iostreams]")
             io::odstream out{xport, path, std::ios_base::out | std::ios_base::in | std::ios_base::app};
             out.close();
 
-            REQUIRE(fs::client::data_object_size(conn, path) > 0);
+            REQUIRE(irods::experimental::replica::replica_size<rcComm_t>(conn, path, 0) > 0);
 
             out.open(xport, path, std::ios_base::in | std::ios_base::out | std::ios_base::app);
             out << message;
@@ -122,7 +123,7 @@ TEST_CASE("dstream", "[iostreams]")
             io::odstream out{xport, path, std::ios_base::out | std::ios_base::in | std::ios_base::app};
             out.close();
 
-            REQUIRE(fs::client::data_object_size(conn, path) > 0);
+            REQUIRE(irods::experimental::replica::replica_size<rcComm_t>(conn, path, 0) > 0);
 
             out.open(xport, path, std::ios_base::in | std::ios_base::out | std::ios_base::app);
             out << message;
@@ -288,6 +289,19 @@ TEST_CASE("dstream", "[iostreams]")
         io::client::native_transport tp{conn};
         io::odstream out{tp, sandbox / "should_not_exist", io::replica_number{1}};
         REQUIRE_FALSE(out);
+    }
+
+    SECTION("read previously written bytes using the same stream")
+    {
+        io::client::native_transport tp{conn};
+        io::dstream ds{tp, sandbox / "data_object.txt", std::ios::in | std::ios::out | std::ios::trunc};
+
+        ds.write("abcd", 4);
+        ds.seekp(-2, std::ios::seekdir::cur);
+
+        char buf[2]{};
+        ds.read(buf, 2);
+        REQUIRE(std::string_view(buf, 2) == "cd");
     }
 }
 

@@ -3,7 +3,6 @@
 
 #undef NAMESPACE_IMPL
 #undef rxComm
-#undef rxDataObjOpen
 #undef rxDataObjRead
 #undef rxDataObjWrite
 #undef rxDataObjLseek
@@ -15,7 +14,6 @@
     #include "rs_replica_open.hpp"
     #include "rs_replica_close.hpp"
 
-    #include "rsDataObjOpen.hpp"
     #include "rsDataObjRead.hpp"
     #include "rsDataObjWrite.hpp"
     #include "rsDataObjLseek.hpp"
@@ -24,7 +22,6 @@
 
     #define rxComm                          rsComm_t
 
-    #define rxDataObjOpen                   rsDataObjOpen
     #define rxDataObjRead                   rsDataObjRead
     #define rxDataObjWrite                  rsDataObjWrite
     #define rxDataObjLseek                  rsDataObjLseek
@@ -34,7 +31,6 @@
     #include "replica_open.h"
     #include "replica_close.h"
 
-    #include "dataObjOpen.h"
     #include "dataObjRead.h"
     #include "dataObjWrite.h"
     #include "dataObjLseek.h"
@@ -43,7 +39,6 @@
 
     #define rxComm                          rcComm_t
 
-    #define rxDataObjOpen                   rcDataObjOpen
     #define rxDataObjRead                   rcDataObjRead
     #define rxDataObjWrite                  rcDataObjWrite
     #define rxDataObjLseek                  rcDataObjLseek
@@ -54,13 +49,13 @@
 
 #include "rcMisc.h"
 #include "transport/transport.hpp"
+#include "irods_at_scope_exit.hpp"
 
 #include "json.hpp"
 
 #include <cstdlib>
 #include <string>
 #include <vector>
-#include <memory>
 
 namespace irods::experimental::io::NAMESPACE_IMPL
 {
@@ -329,6 +324,7 @@ namespace irods::experimental::io::NAMESPACE_IMPL
             }
 
             dataObjInp_t input{};
+            at_scope_exit free_memory{[&input] { clearKeyVal(&input.condInput); }};
 
             input.createMode = 0600;
             input.openFlags = flags;
@@ -337,6 +333,12 @@ namespace irods::experimental::io::NAMESPACE_IMPL
             _func(input);
 
             char* json_output{}; 
+            at_scope_exit free_json_output{[&json_output] {
+                if (json_output) {
+                    std::free(json_output);
+                }
+            }};
+
             const auto fd = rx_replica_open(comm_, &input, &json_output);
 
             if (fd < minimum_valid_file_descriptor) {
@@ -344,7 +346,6 @@ namespace irods::experimental::io::NAMESPACE_IMPL
             }
 
             fd_ = fd;
-            std::unique_ptr<char, void(*)(void*)> free_json_output{json_output, std::free};
 
             try {
                 const auto fd_info = nlohmann::json::parse(json_output);

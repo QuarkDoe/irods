@@ -28,6 +28,7 @@
 #include "irods_stacktrace.hpp"
 #include "irods_re_structs.hpp"
 #include "get_hier_from_leaf_id.h"
+#include "key_value_proxy.hpp"
 
 int
 initL1desc() {
@@ -120,37 +121,42 @@ closeAllL1desc( rsComm_t *rsComm ) {
     return 0;
 }
 
-int
-freeL1desc( int l1descInx ) {
+int freeL1desc_struct(l1desc& _l1desc)
+{
+    if (_l1desc.dataObjInfo) {
+        freeDataObjInfo(_l1desc.dataObjInfo);
+        //freeAllDataObjInfo(_l1desc.dataObjInfo);
+    }
+
+    if (_l1desc.otherDataObjInfo) {
+        freeAllDataObjInfo(_l1desc.otherDataObjInfo);
+    }
+
+    if (_l1desc.replDataObjInfo) {
+        freeDataObjInfo(_l1desc.replDataObjInfo);
+        //freeAllDataObjInfo(_l1desc.replDataObjInfo);
+    }
+
+    if (_l1desc.dataObjInpReplFlag == 1 && _l1desc.dataObjInp) {
+        clearDataObjInp(_l1desc.dataObjInp);
+        free(_l1desc.dataObjInp);
+    }
+
+    _l1desc.replica_token.clear();
+
+    memset(&_l1desc, 0, sizeof(l1desc));
+
+    return 0;
+} // freeL1desc
+
+int freeL1desc(const int l1descInx) {
     if ( l1descInx < 3 || l1descInx >= NUM_L1_DESC ) {
         rodsLog( LOG_NOTICE, "freeL1desc: l1descInx %d out of range", l1descInx );
         return SYS_FILE_DESC_OUT_OF_RANGE;
     }
 
-    if ( L1desc[l1descInx].dataObjInfo != NULL ) {
-        freeDataObjInfo( L1desc[l1descInx].dataObjInfo );
-    }
-
-    if ( L1desc[l1descInx].otherDataObjInfo != NULL ) {
-        freeAllDataObjInfo( L1desc[l1descInx].otherDataObjInfo );
-    }
-
-    if ( L1desc[l1descInx].replDataObjInfo != NULL ) {
-        freeDataObjInfo( L1desc[l1descInx].replDataObjInfo );
-    }
-
-    if ( L1desc[l1descInx].dataObjInpReplFlag == 1 &&
-            L1desc[l1descInx].dataObjInp != NULL ) {
-        clearDataObjInp( L1desc[l1descInx].dataObjInp );
-        free( L1desc[l1descInx].dataObjInp );
-    }
-
-    L1desc[l1descInx].replica_token.clear();
-
-    memset( &L1desc[l1descInx], 0, sizeof( l1desc_t ) );
-
-    return 0;
-}
+    return freeL1desc_struct(L1desc[l1descInx]);
+} // freeL1desc
 
 int
 fillL1desc( int l1descInx, dataObjInp_t *dataObjInp,
@@ -229,29 +235,32 @@ fillL1desc( int l1descInx, dataObjInp_t *dataObjInp,
 
 int
 initDataObjInfoWithInp( dataObjInfo_t *dataObjInfo, dataObjInp_t *dataObjInp ) {
+    namespace ix = irods::experimental;
+
     if (!dataObjInp || !dataObjInfo) {
         rodsLog(LOG_ERROR, "[%s] - null input", __FUNCTION__);
         return SYS_INTERNAL_NULL_INPUT_ERR;
     }
-    keyValPair_t* condInput = &dataObjInp->condInput;
-    if (!condInput) {
-        rodsLog(LOG_ERROR, "[%s] - null condInput", __FUNCTION__);
-        return SYS_INTERNAL_NULL_INPUT_ERR;
-    }
+    auto kvp = ix::make_key_value_proxy(dataObjInp->condInput);
     memset( dataObjInfo, 0, sizeof( dataObjInfo_t ) );
+
     rstrcpy( dataObjInfo->objPath, dataObjInp->objPath, MAX_NAME_LEN );
 
-    auto rescName = getValByKey( condInput, RESC_NAME_KW );
-    if ( rescName != NULL ) {
-        rstrcpy( dataObjInfo->rescName, rescName, NAME_LEN );
+    if (kvp.contains(DATA_ID_KW)) {
+        dataObjInfo->dataId = std::atoll(kvp.at(DATA_ID_KW).value().data());
     }
 
-    auto rescHier = getValByKey( &dataObjInp->condInput, RESC_HIER_STR_KW );
-    if ( rescHier ) {
-        rstrcpy( dataObjInfo->rescHier, rescHier, MAX_NAME_LEN );
+    if (kvp.contains(RESC_NAME_KW)) {
+        const auto resc_name = kvp.at(RESC_NAME_KW).value();
+        rstrcpy(dataObjInfo->rescName, resc_name.data(), NAME_LEN);
+        if (!kvp.contains(RESC_HIER_STR_KW)) {
+            rstrcpy( dataObjInfo->rescHier, resc_name.data(), MAX_NAME_LEN );
+        }
     }
-    else {
-        rstrcpy( dataObjInfo->rescHier, rescName, MAX_NAME_LEN ); // in kw else
+
+    if (kvp.contains(RESC_HIER_STR_KW)) {
+        auto hier = kvp.at(RESC_HIER_STR_KW).value();
+        rstrcpy(dataObjInfo->rescHier, hier.data(), MAX_NAME_LEN);
     }
 
     irods::error ret = resc_mgr.hier_to_leaf_id(dataObjInfo->rescHier,dataObjInfo->rescId);
@@ -261,17 +270,17 @@ initDataObjInfoWithInp( dataObjInfo_t *dataObjInfo, dataObjInp_t *dataObjInp ) {
 
     snprintf( dataObjInfo->dataMode, SHORT_STR_LEN, "%d", dataObjInp->createMode );
 
-    auto dataType = getValByKey( condInput, DATA_TYPE_KW );
-    if ( dataType != NULL ) {
-        rstrcpy( dataObjInfo->dataType, dataType, NAME_LEN );
+    if (kvp.contains(DATA_TYPE_KW)) {
+        auto data_type = kvp.at(DATA_TYPE_KW).value();
+        rstrcpy(dataObjInfo->dataType, data_type.data(), NAME_LEN);
     }
     else {
-        rstrcpy( dataObjInfo->dataType, "generic", NAME_LEN );
+        rstrcpy(dataObjInfo->dataType, "generic", NAME_LEN);
     }
 
-    auto filePath = getValByKey( condInput, FILE_PATH_KW );
-    if ( filePath != NULL ) {
-        rstrcpy( dataObjInfo->filePath, filePath, MAX_NAME_LEN );
+    if (kvp.contains(FILE_PATH_KW)) {
+        auto file_path = kvp.at(FILE_PATH_KW).value();
+        rstrcpy( dataObjInfo->filePath, file_path.data(), MAX_NAME_LEN );
     }
 
     return 0;

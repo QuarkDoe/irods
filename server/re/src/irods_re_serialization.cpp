@@ -5,6 +5,7 @@
 #include "irods_plugin_context.hpp"
 #include "rodsErrorTable.h"
 #include "boost/lexical_cast.hpp"
+#include "fmt/format.h"
 
 namespace irods {
     namespace re_serialization {
@@ -369,6 +370,53 @@ namespace irods {
 
             return SUCCESS();
         } // serialize_dataObjInp_ptr
+
+        static error serialize_bulkOprInp_ptr(
+                boost::any               _p,
+                serialized_parameter_t& _out) {
+
+            try {
+                auto* blk = boost::any_cast<bulkOprInp_t*>(_p);
+
+                if(!blk) {
+                    _out["bulkOprInp_ptr"] = "nullptr";
+                    return SUCCESS();
+                }
+
+                serialize_keyValPair(blk->condInput, _out);
+
+                auto obj_path = getSqlResultByInx(&blk->attriArray, COL_DATA_NAME);
+                if(!obj_path) {
+                    THROW(UNMATCHED_KEY_OR_INDEX, "missing object path");
+                }
+
+                auto offset = getSqlResultByInx(&blk->attriArray, OFFSET_INX);
+                if(!offset) {
+                    THROW(UNMATCHED_KEY_OR_INDEX, "missing offset");
+                }
+
+                std::vector<int> offset_int{};
+                for (int i = 0; i < blk->attriArray.rowCnt; ++i) {
+                    offset_int.push_back(atoi(&offset->value[offset->len * i]));
+                }
+
+                for(auto i = 0; i < blk->attriArray.rowCnt; ++i) {
+                    auto lp = std::string{"logical_path_"}+std::to_string(i);
+                    auto ds = std::string{"data_size_"}+std::to_string(i);
+
+                    _out[lp] = &obj_path->value[obj_path->len * i];
+                    _out[ds] = std::to_string(i==0 ? offset_int[0] : offset_int[i]-offset_int[i-1]);
+                } // for i
+            }
+            catch ( std::exception& ) {
+                return ERROR(
+                         INVALID_ANY_CAST,
+                         "failed to cast dataObjInp ptr" );
+            }
+
+            return SUCCESS();
+
+        } // serialize_bulkOprInp_ptr
 
         static error serialize_authResponseInp_ptr(
                 boost::any               _p,
@@ -922,6 +970,98 @@ namespace irods {
 
             return SUCCESS();
         } // serialize_char_ptr_ptr
+
+
+        static irods::error serialize_openedDataObjInp_ptr(boost::any _p,
+                                                           serialized_parameter_t& _out) {
+            try {
+                openedDataObjInp_t *ptr = boost::any_cast<openedDataObjInp_t*>(_p);
+
+                // for a valid ptr, we serialize the immediate properties + keyValPair
+                if (ptr) {
+                    _out["l1descInx"] = std::to_string(ptr->l1descInx);
+                    _out["len"] = std::to_string(ptr->len);
+                    _out["whence"] = std::to_string(ptr->whence);
+                    _out["oprType"] = std::to_string(ptr->oprType);
+                    _out["offset"] = std::to_string(ptr->offset);
+                    _out["bytesWritten"] = std::to_string(ptr->bytesWritten);
+
+                    serialize_keyValPair(ptr->condInput, _out);
+                }
+                else {
+                    _out["null_value"] = "null_value";
+                }
+            }
+            catch (std::exception&) {
+                return ERROR(
+                    INVALID_ANY_CAST,
+                    "failed to cast openedDataObjInp_t ptr");
+            }
+
+            return SUCCESS();
+        } // serialize_openedDataObjInp_ptr
+
+
+        static irods::error serialize_openedDataObjInp_ptr_ptr(boost::any _p,
+                                                               serialized_parameter_t& _out)
+        {
+            try {
+                openedDataObjInp_t **ptr = boost::any_cast<openedDataObjInp_t**>(_p);
+
+                // if we can, dereference and serialize
+                if (ptr && *ptr) {
+                    serialize_openedDataObjInp_ptr(*ptr, _out);
+                }
+                else {
+                    _out["null_value"] = "null_value";
+                }
+            }
+            catch (std::exception&) {
+                return ERROR(
+                    INVALID_ANY_CAST,
+                    "failed to cast openedDataObjInp_t ptr ptr");
+            }
+
+            return SUCCESS();
+        } // serialize_openedDataObjInp_ptr_ptr
+
+
+        static irods::error serialize_bytesBuf_ptr(boost::any _p,
+                                                   serialized_parameter_t& _out)
+        {
+            try {
+                bytesBuf_t *ptr = boost::any_cast<bytesBuf_t*>(_p);
+
+                // we serialize the length and content (nonprintable escaped)
+                if (ptr) {
+                    _out["len"] = std::to_string(ptr->len);
+                    std::string &str = _out["buf"];
+
+                    for (int i = 0; i < ptr->len; i++)
+                    {
+                        unsigned char c = *((unsigned char*)(ptr->buf) + i);
+
+                        if (isprint(c) || isspace(c) || isblank(c)) {
+                            str += c;
+                        }
+                        else {
+                            str += fmt::format("\\x{0:02x}", c);
+                        }
+                    }
+                }
+                else {
+                    _out["null_value"] = "null_value";
+                }
+            }
+            catch (std::exception&) {
+                return ERROR(
+                    INVALID_ANY_CAST,
+                    "failed to cast bytesBuf_t ptr");
+            }
+
+            return SUCCESS();
+        } // serialize_bytesBuf_ptr
+
 #if 0
         static error serialize_XXXX_ptr(
                 boost::any               _p,
@@ -956,6 +1096,7 @@ namespace irods {
                 { std::type_index(typeid(rsComm_t*)), serialize_rsComm_ptr },
                 { std::type_index(typeid(plugin_context)), serialize_plugin_context },
                 { std::type_index(typeid(dataObjInp_t*)), serialize_dataObjInp_ptr },
+                { std::type_index(typeid(bulkOprInp_t*)), serialize_bulkOprInp_ptr },
                 { std::type_index(typeid(authResponseInp_t*)), serialize_authResponseInp_ptr },
                 { std::type_index(typeid(dataObjInfo_t*)), serialize_dataObjInfo_ptr },
                 { std::type_index(typeid(keyValPair_t*)), serialize_keyValPair_ptr },
@@ -971,7 +1112,10 @@ namespace irods {
                 { std::type_index(typeid(rodsObjStat_t*)), serialize_rodsObjStat_ptr },
                 { std::type_index(typeid(genQueryInp_t*)), serialize_genQueryInp_ptr },
                 { std::type_index(typeid(genQueryOut_t*)), serialize_genQueryOut_ptr },
-                { std::type_index(typeid(char**)), serialize_char_ptr_ptr }
+                { std::type_index(typeid(char**)), serialize_char_ptr_ptr },
+                { std::type_index(typeid(openedDataObjInp_t*)), serialize_openedDataObjInp_ptr },
+                { std::type_index(typeid(openedDataObjInp_t**)), serialize_openedDataObjInp_ptr_ptr },
+                { std::type_index(typeid(bytesBuf_t*)), serialize_bytesBuf_ptr }
             };
             return the_map;
 
@@ -980,7 +1124,7 @@ namespace irods {
         error add_operation(
             const index_t& _index,
             operation_t    _operation ) {
-            
+
             serialization_map_t& the_map = get_serialization_map();
             if(the_map.find(_index) != the_map.end() ) {
                 return ERROR(
@@ -1015,7 +1159,7 @@ namespace irods {
                 _out_param["ERROR"] = err;
                 return SUCCESS();
             }
-            
+
             return the_map[idx](_in_param, _out_param);
 
         } // serialize_parameter

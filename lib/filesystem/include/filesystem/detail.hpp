@@ -17,17 +17,24 @@ namespace irods::experimental::filesystem::detail
         return {_ec, std::system_category()};
     }
 
+    inline auto is_separator(path::value_type _c) noexcept -> bool
+    {
+        return path::preferred_separator == _c;
+    }
+
     inline auto throw_if_path_length_exceeds_limit(const irods::experimental::filesystem::path& _p) -> void
     {
         if (std::strlen(_p.c_str()) > MAX_NAME_LEN) {
-            throw irods::experimental::filesystem::filesystem_error{"path length cannot exceed max path size",
+            throw irods::experimental::filesystem::filesystem_error{"path length cannot exceed max path size", _p,
                                                                     make_error_code(USER_PATH_EXCEEDS_MAX)};
         }
     }
 
-    inline auto is_separator(path::value_type _c) noexcept -> bool
+    inline auto throw_if_path_is_empty(const irods::experimental::filesystem::path& _p) -> void
     {
-        return path::preferred_separator == _c;
+        if (_p.empty()) {
+            throw irods::experimental::filesystem::filesystem_error{"empty path", _p, make_error_code(SYS_INVALID_INPUT_PARAM)};
+        }
     }
 } // irods::experimental::filesystem::detail
 

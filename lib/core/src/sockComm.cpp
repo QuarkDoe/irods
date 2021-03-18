@@ -1,9 +1,5 @@
-/*** Copyright (c), The Regents of the University of California            ***
- *** For more information please refer to files in the COPYRIGHT directory ***/
-/* sockComm.c - sock communication routines
- */
-
 #include "sockComm.h"
+
 #include "rcMisc.h"
 #include "rcGlobalExtern.h"
 #include "miscServerFunct.hpp"
@@ -14,23 +10,20 @@
 #include "rodsConnect.h"
 
 #ifdef windows_platform
-#include "irodsntutil.hpp"
+    #include "irodsntutil.hpp"
 #endif
 
 #ifdef _WIN32
-#include <mmsystem.h>
-int win_connect_timeout;
-MMRESULT win_connect_timer_id;
+    #include <mmsystem.h>
+    int win_connect_timeout;
+    MMRESULT win_connect_timer_id;
 #endif
 
 #ifndef _WIN32
-
-#include <setjmp.h>
-jmp_buf Jcenv;
-
+    #include <csetjmp>
+    jmp_buf Jcenv;
 #endif  /* _WIN32 */
 
-// =-=-=-=-=-=-=-
 #include "irods_stacktrace.hpp"
 #include "irods_client_server_negotiation.hpp"
 #include "irods_network_plugin.hpp"
@@ -41,12 +34,15 @@ jmp_buf Jcenv;
 #include "irods_server_properties.hpp"
 #include "sockCommNetworkInterface.hpp"
 #include "irods_random.hpp"
+#include "hostname_cache.hpp"
+#include "irods_configuration_keywords.hpp"
 
-// =-=-=-=-=-=-=-
-//
-irods::error sockClientStart(
-    irods::network_object_ptr _ptr,
-    rodsEnv*                   _env ) {
+#include <json.hpp>
+
+#include <exception>
+
+irods::error sockClientStart(irods::network_object_ptr _ptr, rodsEnv* _env)
+{
     // =-=-=-=-=-=-=-
     // resolve a network interface plugin from the
     // network object
@@ -204,12 +200,12 @@ irods::error readMsgHeader(
     // =-=-=-=-=-=-=-
     // unpack the header message, always use XML_PROT for the header
     msgHeader_t* out_header = 0;
-    int status = unpackStruct(
+    int status = unpack_struct(
                      static_cast<void*>( tmp_buf ),
                      ( void ** )( static_cast< void * >( &out_header ) ),
                      "MsgHeader_PI",
                      RodsPackTable,
-                     XML_PROT );
+                     XML_PROT, nullptr);
     if ( status < 0 ) {
         return ERROR( status, "unpackStruct error" );
     }
@@ -393,9 +389,41 @@ sockOpenForInConn( rsComm_t *rsComm, int *portNum, char **addr, int proto ) {
         return status;
     }
 
-    if ( addr != NULL ) {
-        *addr = ( char * )malloc( sizeof( char ) * LONG_NAME_LEN );
-        gethostname( *addr, LONG_NAME_LEN );
+    if (addr) {
+        namespace hnc = irods::experimental::net::hostname_cache;
+
+        if (const auto entry = hnc::lookup("localhost"); entry) {
+            rodsLog(LOG_DEBUG, "%s :: Returning cached hostname for localhost [alias=%s].", __func__, entry->data());
+            *addr = static_cast<char*>(std::malloc(sizeof(char) * entry->size() + 1));
+            std::strncpy(*addr, entry->data(), entry->size());
+            (*addr)[entry->size()] = 0;
+        }
+        else {
+            rodsLog(LOG_NOTICE, "%s :: Hostname cache miss for localhost.", __func__);
+
+            constexpr auto size_in_bytes = sizeof(char) * LONG_NAME_LEN;
+            *addr = static_cast<char*>(std::malloc(size_in_bytes));
+            std::memset(*addr, 0, size_in_bytes);
+            gethostname(*addr, LONG_NAME_LEN);
+
+            try {
+                const auto& hosts_config = irods::get_server_property<nlohmann::json&>(irods::HOSTS_CONFIG_JSON_OBJECT_KW);
+                const auto alias = resolve_hostname(*addr, hosts_config, hostname_resolution_scheme::match_longest);
+
+                if (alias) {
+                    std::strncpy(*addr, alias->data(), alias->size());
+                }
+
+                const std::chrono::seconds age{irods::get_hostname_cache_eviction_age()};
+                const auto inserted = hnc::insert_or_assign("localhost", *addr, age);
+
+                rodsLog(LOG_DEBUG, "%s :: Added alias to hostname cache for localhost [alias=%s, inserted=%d].",
+                        __func__, *addr, inserted);
+            }
+            catch (const std::exception& e) {
+                rodsLog(LOG_ERROR, "%s :: Hostname cache error: %s", __func__, e.what());
+            }
+        }
     }
 
     return sock;
@@ -438,14 +466,8 @@ irods::error writeMsgHeader(
     // =-=-=-=-=-=-=-
     // always use XML_PROT for the Header
     bytesBuf_t* header_buf = 0;
-    int status = packStruct(
-                     static_cast<const void *>( _header ),
-                     &header_buf,
-                     "MsgHeader_PI",
-                     RodsPackTable,
-                     0, XML_PROT );
-    if ( status < 0 ||
-            0 == header_buf ) {
+    int status = pack_struct(_header, &header_buf, "MsgHeader_PI", RodsPackTable, 0, XML_PROT, nullptr);
+    if ( status < 0 || 0 == header_buf ) {
         return ERROR( status, "packstruct error" );
     }
 
@@ -554,12 +576,12 @@ irods::error readVersion(
 
     // =-=-=-=-=-=-=-
     // unpack the message, always use XML for this message type
-    int status = unpackStruct(
+    int status = unpack_struct(
                      inputStructBBuf.buf,
                      ( void** )( _version ),
                      "Version_PI",
                      RodsPackTable,
-                     XML_PROT );
+                     XML_PROT, nullptr);
     free( inputStructBBuf.buf );
     if ( status < 0 ) {
         rodsLogError( LOG_NOTICE, status,
@@ -1132,8 +1154,8 @@ sendStartupPack( rcComm_t *conn, int connectCnt, int reconnFlag ) {
     }
 
     /* always use XML_PROT for the startupPack */
-    status = packStruct( ( void * ) &startupPack, &startupPackBBuf,
-                         "StartupPack_PI", RodsPackTable, 0, XML_PROT );
+    status = pack_struct( ( void * ) &startupPack, &startupPackBBuf,
+                         "StartupPack_PI", RodsPackTable, 0, XML_PROT, nullptr);
     if ( status < 0 ) {
         rodsLogError( LOG_NOTICE, status,
                       "sendStartupPack: packStruct error" );
@@ -1196,8 +1218,8 @@ irods::error sendVersion(
     }
 
     /* alway use XML for version */
-    status = packStruct( ( char * ) &myVersion, &versionBBuf,
-                         "Version_PI", RodsPackTable, 0, XML_PROT );
+    status = pack_struct( ( char * ) &myVersion, &versionBBuf,
+                         "Version_PI", RodsPackTable, 0, XML_PROT, nullptr);
     if ( status < 0 ) {
         return ERROR( status, "packStruct error" );
     }
@@ -1346,12 +1368,12 @@ irods::error readReconMsg(
     }
 
     /* always use XML_PROT for the startup pack */
-    status = unpackStruct(
+    status = unpack_struct(
                  inputStructBBuf.buf,
                  ( void** )( _msg ),
                  "ReconnMsg_PI",
                  RodsPackTable,
-                 XML_PROT );
+                 XML_PROT, nullptr);
     clearBBuf( &inputStructBBuf );
     if ( status < 0 ) {
         rodsLogError( LOG_NOTICE,  status,
@@ -1375,12 +1397,12 @@ irods::error sendReconnMsg(
     // =-=-=-=-=-=-=-
     // pack outgoing message - alway use XML for version
     bytesBuf_t* recon_buf = NULL;
-    int status = packStruct(
+    int status = pack_struct(
                      static_cast<void*>( _msg ),
                      &recon_buf,
                      "ReconnMsg_PI",
                      RodsPackTable,
-                     0, XML_PROT );
+                     0, XML_PROT, nullptr);
     if ( status < 0 ) {
         return ERROR( status, "failed to pack struct" );
     }

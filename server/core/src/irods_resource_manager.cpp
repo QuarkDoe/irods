@@ -20,6 +20,8 @@
 #include "miscServerFunct.hpp"
 #include "genQuery.h"
 
+#include "fmt/format.h"
+
 // =-=-=-=-=-=-=-
 // stl includes
 #include <iostream>
@@ -30,24 +32,38 @@
 // global singleton
 irods::resource_manager resc_mgr;
 
-namespace irods {
-// =-=-=-=-=-=-=-
-// public - Constructor
+namespace irods
+{
+    const std::string EMPTY_RESC_HOST( "EMPTY_RESC_HOST" );
+    const std::string EMPTY_RESC_PATH( "EMPTY_RESC_PATH" );
+
+    // =-=-=-=-=-=-=-
+    /// @brief definition of the resource interface
+    const std::string RESOURCE_INTERFACE( "irods_resource_interface" );
+
+    // =-=-=-=-=-=-=-
+    /// @brief special resource for local file system operations only
+    const std::string LOCAL_USE_ONLY_RESOURCE( "LOCAL_USE_ONLY_RESOURCE" );
+    const std::string LOCAL_USE_ONLY_RESOURCE_VAULT( "/var/lib/irods/LOCAL_USE_ONLY_RESOURCE_VAULT" );
+    const std::string LOCAL_USE_ONLY_RESOURCE_TYPE( "unixfilesystem" );
+
+    // =-=-=-=-=-=-=-
+    // public - Constructor
     resource_manager::resource_manager() {
     } // ctor
 
-// =-=-=-=-=-=-=-
-// public - Copy Constructor
+    // =-=-=-=-=-=-=-
+    // public - Copy Constructor
     resource_manager::resource_manager( const resource_manager& ) {
     } // cctor
 
-// =-=-=-=-=-=-=-
-// public - Destructor
+    // =-=-=-=-=-=-=-
+    // public - Destructor
     resource_manager::~resource_manager( ) {
     } // cctor
 
-// =-=-=-=-=-=-=-
-// public - retrieve a resource given its key
+    // =-=-=-=-=-=-=-
+    // public - retrieve a resource given its key
     error resource_manager::resolve(
         std::string   _key,
         resource_ptr& _value ) {
@@ -430,6 +446,37 @@ namespace irods {
                    RESOURCE_NAME,
                    _name );
     } // get_parent_name
+
+    std::string resource_manager::get_hier_to_root_for_resc(std::string_view _resource_name)
+    {
+        if (_resource_name.empty()) {
+            return {};
+        }
+
+        irods::hierarchy_parser hierarchy{_resource_name.data()};
+
+        for (std::string parent_name = _resource_name.data(); !parent_name.empty();) {
+            resource_ptr resc;
+
+            if (const auto ret = resolve(parent_name, resc); !ret.ok()) {
+                THROW(ret.code(), ret.result());
+            }
+
+            if (const auto ret = get_parent_name(resc, parent_name); !ret.ok()) {
+                if(HIERARCHY_ERROR == ret.code()) {
+                    break;
+                }
+
+                THROW(ret.code(), ret.result());
+            }
+
+            if(!parent_name.empty()) {
+                hierarchy.add_parent(parent_name);
+            }
+        }
+
+        return hierarchy.str();
+    } // get_hier_to_root_for_resc
 
     error resource_manager::get_hier_to_root_for_resc(
         const std::string& _resc_name,
@@ -1079,6 +1126,25 @@ namespace irods {
         return hier_list;
     } // get_all_resc_hierarchies
 
+    rodsLong_t resource_manager::hier_to_leaf_id(std::string_view _hierarchy)
+    {
+        if (_hierarchy.empty()) {
+            THROW(HIERARCHY_ERROR, "empty hierarchy string");
+        }
+
+        const std::string leaf = irods::hierarchy_parser{_hierarchy.data()}.last_resc();
+        if (!resource_name_map_.has_entry(leaf)) {
+            THROW(SYS_RESC_DOES_NOT_EXIST, leaf);
+        }
+
+        rodsLong_t id = 0;
+        const resource_ptr resc = resource_name_map_[leaf];
+        if (const error ret = resc->get_property<rodsLong_t>(RESOURCE_ID, id); !ret.ok()) {
+            THROW(ret.code(), ret.result());
+        }
+        return id;
+    } // hier_to_leaf_id
+
     error resource_manager::hier_to_leaf_id(
         const std::string& _hier,
         rodsLong_t&        _id ) {
@@ -1115,6 +1181,37 @@ namespace irods {
         return SUCCESS();
 
     } // hier_to_leaf_id
+
+    std::string resource_manager::leaf_id_to_hier(const rodsLong_t _leaf_resource_id)
+    {
+        if(!resource_id_map_.has_entry(_leaf_resource_id)) {
+            THROW(SYS_RESC_DOES_NOT_EXIST, fmt::format("invalid resource id: {}", _leaf_resource_id));
+        }
+
+        resource_ptr resc = resource_id_map_[_leaf_resource_id];
+
+        std::string leaf_name;
+        if (const error ret = resc->get_property<std::string>(RESOURCE_NAME, leaf_name); !ret.ok()) {
+            THROW(ret.code(), ret.result());
+        }
+
+        irods::hierarchy_parser parser{leaf_name};
+
+        resc->get_parent(resc);
+        while(resc.get()) {
+            std::string name;
+
+            if (const error ret = resc->get_property<std::string>(RESOURCE_NAME, name); !ret.ok()) {
+                THROW(ret.code(), ret.result());
+            }
+
+            parser.add_parent(name);
+
+            resc->get_parent(resc);
+        }
+
+        return parser.str();
+    } // leaf_id_to_hier
 
     error resource_manager::leaf_id_to_hier(
         const rodsLong_t& _id,
@@ -1226,6 +1323,37 @@ namespace irods {
 
     } // resc_id_to_name
 
+    std::string resource_manager::resc_id_to_name(const rodsLong_t& _id)
+    {
+        if(!_id) {
+            return {};
+        }
+
+        if(!resource_id_map_.has_entry(_id)) {
+            THROW(SYS_RESC_DOES_NOT_EXIST, fmt::format("invalid resource id: {}", _id));
+        }
+
+        std::string resource_name;
+        const resource_ptr resc = resource_id_map_[_id];
+        if (const error ret = resc->get_property<std::string>(RESOURCE_NAME, resource_name); !ret.ok()) {
+            THROW(ret.code(), ret.result());
+        }
+        return resource_name;
+    } // resc_id_to_name
+
+    std::string resource_manager::resc_id_to_name(std::string_view _id)
+    {
+        if(_id.empty()) {
+            return {};
+        }
+
+        rodsLong_t id = 0;
+        if (const error ret = lexical_cast<rodsLong_t>(_id, id); !ret.ok()) {
+            THROW(ret.code(), ret.result());
+        }
+        return resc_id_to_name(id);
+    } // resc_id_to_name
+
     error resource_manager::is_coordinating_resource(
         const std::string& _resc_name,
         bool&              _ret ) {
@@ -1250,5 +1378,4 @@ namespace irods {
         resource_ptr resc = resource_name_map_[_resc_name];
         return resc->num_children() > 0;
     } // is_coordinating_resource
-
-}; // namespace irods
+} // namespace irods

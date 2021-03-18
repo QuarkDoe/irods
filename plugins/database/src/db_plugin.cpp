@@ -32,6 +32,7 @@
 #include "irods_rs_comm_query.hpp"
 #include "modAccessControl.h"
 #include "checksum.hpp"
+#include "key_value_proxy.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -2603,7 +2604,6 @@ irods::error db_reg_data_obj_op(
     char dataReplNum[MAX_NAME_LEN];
     char dataSizeNum[MAX_NAME_LEN];
     char dataStatusNum[MAX_NAME_LEN];
-    char data_expiry_ts[] = { "00000000000" };
     int status;
     int inheritFlag;
 
@@ -2653,6 +2653,7 @@ irods::error db_reg_data_obj_op(
         return ERROR( iVal, "" );
     }
     snprintf( collIdNum, MAX_NAME_LEN, "%lld", iVal );
+    _data_obj_info->collId = iVal;
 
     /* Make sure no collection already exists by this name */
     if ( logSQL != 0 ) {
@@ -2681,13 +2682,21 @@ irods::error db_reg_data_obj_op(
     snprintf( dataReplNum, MAX_NAME_LEN, "%d", _data_obj_info->replNum );
     snprintf( dataStatusNum, MAX_NAME_LEN, "%d", _data_obj_info->replStatus );
     snprintf( dataSizeNum, MAX_NAME_LEN, "%lld", _data_obj_info->dataSize );
-    getNowStr( myTime );
 
+    getNowStr( myTime );
     if (0 == strcmp(_data_obj_info->dataModify, "")) {
         strcpy(_data_obj_info->dataModify, myTime);
     }
+    if (0 == strcmp(_data_obj_info->dataCreate, "")) {
+        strcpy(_data_obj_info->dataCreate, myTime);
+    }
+    strcpy(_data_obj_info->dataExpiry, "00000000000");
+
+    std::snprintf(_data_obj_info->dataOwnerName, sizeof(_data_obj_info->dataOwnerName), "%s", _ctx.comm()->clientUser.userName);
+    std::snprintf(_data_obj_info->dataOwnerZone, sizeof(_data_obj_info->dataOwnerZone), "%s", _ctx.comm()->clientUser.rodsZone);
 
     std::string resc_id_str = boost::lexical_cast<std::string>(_data_obj_info->rescId);
+
     cllBindVars[0] = dataIdNum;
     cllBindVars[1] = collIdNum;
     cllBindVars[2] = logicalFileName;
@@ -2697,14 +2706,14 @@ irods::error db_reg_data_obj_op(
     cllBindVars[6] = dataSizeNum;
     cllBindVars[7] = resc_id_str.c_str();
     cllBindVars[8] = _data_obj_info->filePath;
-    cllBindVars[9] = _ctx.comm()->clientUser.userName;
-    cllBindVars[10] = _ctx.comm()->clientUser.rodsZone;
+    cllBindVars[9] = _data_obj_info->dataOwnerName;
+    cllBindVars[10] = _data_obj_info->dataOwnerZone;
     cllBindVars[11] = dataStatusNum;
     cllBindVars[12] = _data_obj_info->chksum;
     cllBindVars[13] = _data_obj_info->dataMode;
-    cllBindVars[14] = myTime;
+    cllBindVars[14] = _data_obj_info->dataCreate;
     cllBindVars[15] = _data_obj_info->dataModify;
-    cllBindVars[16] = data_expiry_ts;
+    cllBindVars[16] = _data_obj_info->dataExpiry;
     cllBindVars[17] = "EMPTY_RESC_NAME";
     cllBindVars[18] = "EMPTY_RESC_HIER";
     cllBindVars[19] = "EMPTY_RESC_GROUP_NAME";
@@ -3294,11 +3303,8 @@ irods::error db_reg_rule_exec_op(
 
     // =-=-=-=-=-=-=-
     // check the params
-    if (
-        !_re_sub_inp ) {
-        return ERROR(
-                   CAT_INVALID_ARGUMENT,
-                   "null parameter" );
+    if ( !_re_sub_inp ) {
+        return ERROR( CAT_INVALID_ARGUMENT, "null parameter" );
     }
 
     // =-=-=-=-=-=-=-
@@ -3323,6 +3329,7 @@ irods::error db_reg_rule_exec_op(
     if ( logSQL != 0 ) {
         rodsLog( LOG_SQL, "chlRegRuleExec" );
     }
+
     if ( !icss.status ) {
         return ERROR( CATALOG_NOT_CONNECTED, "catalog not connected" );
     }
@@ -3330,10 +3337,10 @@ irods::error db_reg_rule_exec_op(
     if ( logSQL != 0 ) {
         rodsLog( LOG_SQL, "chlRegRuleExec SQL 1 " );
     }
+
     seqNum = cmlGetNextSeqVal( &icss );
     if ( seqNum < 0 ) {
-        rodsLog( LOG_NOTICE, "chlRegRuleExec cmlGetNextSeqVal failure %d",
-                 seqNum );
+        rodsLog( LOG_NOTICE, "chlRegRuleExec cmlGetNextSeqVal failure %d", seqNum );
         _rollback( "chlRegRuleExec" );
         return ERROR( seqNum, "cmlGetNextSeqVal failure" );
     }
@@ -3344,52 +3351,52 @@ irods::error db_reg_rule_exec_op(
 
     getNowStr( myTime );
 
-    cllBindVars[0] = ruleExecIdNum;
-    cllBindVars[1] = _re_sub_inp->ruleName;
-    cllBindVars[2] = _re_sub_inp->reiFilePath;
-    cllBindVars[3] = _re_sub_inp->userName;
-    cllBindVars[4] = _re_sub_inp->exeAddress;
-    cllBindVars[5] = _re_sub_inp->exeTime;
-    cllBindVars[6] = _re_sub_inp->exeFrequency;
-    cllBindVars[7] = _re_sub_inp->priority;
-    cllBindVars[8] = _re_sub_inp->estimateExeTime;
-    cllBindVars[9] = _re_sub_inp->notificationAddr;
-    cllBindVars[10] = myTime;
-    cllBindVars[11] = myTime;
+    cllBindVars[cllBindVarCount++] = ruleExecIdNum;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->ruleName;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->reiFilePath;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->userName;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->exeAddress;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->exeTime;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->exeFrequency;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->priority;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->estimateExeTime;
+    cllBindVars[cllBindVarCount++] = _re_sub_inp->notificationAddr;
+    cllBindVars[cllBindVarCount++] = myTime;
+    cllBindVars[cllBindVarCount++] = myTime;
 
-    cllBindVarCount = 12;
+    // To maintain backwards compatibility, the jsonified rule execution context
+    // is passed via the conditional input.
+    const irods::experimental::key_value_proxy kvp{_re_sub_inp->condInput};
+    cllBindVars[cllBindVarCount++] = kvp[RULE_EXECUTION_CONTEXT_KW].value().data();
+
     if ( logSQL != 0 ) {
         rodsLog( LOG_SQL, "chlRegRuleExec SQL 2" );
     }
-    status =  cmlExecuteNoAnswerSql(
-                  "insert into R_RULE_EXEC (rule_exec_id, rule_name, rei_file_path, user_name, exe_address, exe_time, exe_frequency, priority, estimated_exe_time, notification_addr, create_ts, modify_ts) values (?,?,?,?,?,?,?,?,?,?,?,?)",
-                  &icss );
+    status = cmlExecuteNoAnswerSql("insert into R_RULE_EXEC (rule_exec_id, rule_name, rei_file_path, user_name, exe_address, exe_time, exe_frequency, priority, estimated_exe_time, notification_addr, create_ts, modify_ts, exe_context) "
+                                   "values (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                   &icss);
     if ( status != 0 ) {
-        rodsLog( LOG_NOTICE,
-                 "chlRegRuleExec cmlExecuteNoAnswerSql(insert) failure %d", status );
+        rodsLog( LOG_NOTICE, "chlRegRuleExec cmlExecuteNoAnswerSql(insert) failure %d", status );
         _rollback( "chlRegRuleExec" );
         return ERROR( status, "cmlExecuteNoAnswerSql(insert) failure" );
-
     }
 
     status =  cmlExecuteNoAnswerSql( "commit", &icss );
     if ( status != 0 ) {
-        rodsLog( LOG_NOTICE,
-                 "chlRegRuleExec cmlExecuteNoAnswerSql commit failure %d",
-                 status );
+        rodsLog( LOG_NOTICE, "chlRegRuleExec cmlExecuteNoAnswerSql commit failure %d", status );
         return ERROR( status, "cmlExecuteNoAnswerSql commit failure" );
     }
 
     return SUCCESS();
-
 } // db_reg_rule_exec_op
 
 // =-=-=-=-=-=-=-
-// unregister a data object
+// Modify an existing rule in the catalog.
 irods::error db_mod_rule_exec_op(
     irods::plugin_context& _ctx,
     const char*            _re_id,
-    keyValPair_t*          _reg_param ) {
+    keyValPair_t*          _reg_param )
+{
     // =-=-=-=-=-=-=-
     // check the context
     irods::error ret = _ctx.valid();
@@ -3399,12 +3406,8 @@ irods::error db_mod_rule_exec_op(
 
     // =-=-=-=-=-=-=-
     // check the params
-    if (
-        !_re_id  ||
-        !_reg_param ) {
-        return ERROR(
-                   CAT_INVALID_ARGUMENT,
-                   "null parameter" );
+    if (!_re_id  || !_reg_param ) {
+        return ERROR( CAT_INVALID_ARGUMENT, "null parameter" );
     }
 
     // =-=-=-=-=-=-=-
@@ -3433,19 +3436,39 @@ irods::error db_mod_rule_exec_op(
        routine understands and colNames has the corresponding column
        names; one for one. */
     char *regParamNames[] = {
-        RULE_NAME_KW, RULE_REI_FILE_PATH_KW, RULE_USER_NAME_KW,
-        RULE_EXE_ADDRESS_KW, RULE_EXE_TIME_KW,
-        RULE_EXE_FREQUENCY_KW, RULE_PRIORITY_KW, RULE_ESTIMATE_EXE_TIME_KW,
-        RULE_NOTIFICATION_ADDR_KW, RULE_LAST_EXE_TIME_KW,
+        RULE_NAME_KW,
+        RULE_REI_FILE_PATH_KW,
+        RULE_USER_NAME_KW,
+        RULE_EXE_ADDRESS_KW,
+        RULE_EXE_TIME_KW,
+        RULE_EXE_FREQUENCY_KW,
+        RULE_PRIORITY_KW,
+        RULE_ESTIMATE_EXE_TIME_KW,
+        RULE_NOTIFICATION_ADDR_KW,
+        RULE_LAST_EXE_TIME_KW,
         RULE_EXE_STATUS_KW,
+        RULE_EXECUTION_CONTEXT_KW,
         "END"
     };
+
     char *colNames[] = {
-        "rule_name", "rei_file_path", "user_name",
-        "exe_address", "exe_time", "exe_frequency", "priority",
-        "estimated_exe_time", "notification_addr",
-        "last_exe_time", "exe_status",
-        "create_ts", "modify_ts",
+        "rule_name",
+        "rei_file_path",
+        "user_name",
+        "exe_address",
+        "exe_time",
+        "exe_frequency",
+        "priority",
+        "estimated_exe_time",
+        "notification_addr",
+        "last_exe_time",
+        "exe_status",
+        "exe_context",
+
+        // The following columns are handled automatically.
+        // ** New columns MUST be added before these lines! **
+        "create_ts",
+        "modify_ts"
     };
 
     if ( logSQL != 0 ) {
@@ -3477,7 +3500,7 @@ irods::error db_mod_rule_exec_op(
     if ( logSQL != 0 ) {
         rodsLog( LOG_SQL, "chlModRuleExec SQL 1 " );
     }
-    status =  cmlExecuteNoAnswerSql( tSQL, &icss );
+    status = cmlExecuteNoAnswerSql( tSQL, &icss );
 
     if ( status != 0 ) {
         _rollback( "chlModRuleExec" );
@@ -3496,7 +3519,6 @@ irods::error db_mod_rule_exec_op(
     }
 
     return CODE( status );
-
 } // db_mod_rule_exec_op
 
 // =-=-=-=-=-=-=-

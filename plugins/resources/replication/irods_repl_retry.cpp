@@ -14,9 +14,17 @@ int irods::data_obj_repl_with_retry(
         dataObjInp_t& dataObjInp ) {
 
     transferStat_t* trans_stat{ nullptr };
+    rmKeyVal(&dataObjInp.condInput, ALL_KW);
     auto status{ rsDataObjRepl( _ctx.comm(), &dataObjInp, &trans_stat ) };
     if ( 0 == status ) {
+        irods::log(LOG_DEBUG8, fmt::format("[{}:{}] - replication succeeded", __FUNCTION__, __LINE__));
         free( trans_stat );
+        return status;
+    }
+    else if (SYS_NOT_ALLOWED == status) {
+        const auto error = irods::pop_error_message(_ctx.comm()->rError);
+        irods::log(LOG_NOTICE, fmt::format("[{}:{}] - [{}]",
+            __FUNCTION__, __LINE__, error));
         return status;
     }
 
@@ -40,9 +48,14 @@ int irods::data_obj_repl_with_retry(
         THROW( err.code(), err.result() );
     }
 
+    irods::log(LOG_DEBUG, fmt::format(
+        "[{}:{}] - replication failed, retrying...attempts:[{}],delay:[{}],backoff[{}]",
+        __FUNCTION__, __LINE__, retry_attempts, delay_in_seconds, backoff_multiplier));
+
     // Keep retrying until success or there are no more attempts left
     try {
         while ( status < 0 && retry_attempts-- > 0 ) {
+            irods::log(LOG_DEBUG, fmt::format("[{}:{}] - retries remaining:[{}]", __FUNCTION__, __LINE__, retry_attempts));
             std::this_thread::sleep_for( std::chrono::seconds( delay_in_seconds ) );
             status = rsDataObjRepl( _ctx.comm(), &dataObjInp, &trans_stat );
             if ( status < 0 && retry_attempts > 0 ) {

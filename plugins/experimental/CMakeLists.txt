@@ -13,7 +13,11 @@ set(
 set(
   IRODS_EXPERIMENTAL_API_PLUGIN_COPY_SOURCES
   ${CMAKE_SOURCE_DIR}/plugins/experimental/copy.cpp
-  ${CMAKE_SOURCE_DIR}/plugins/experimental/parallel_copy_collection.cpp
+  )
+
+set(
+  IRODS_EXPERIMENTAL_API_PLUGIN_REPLICATE_SOURCES
+  ${CMAKE_SOURCE_DIR}/plugins/experimental/replicate.cpp
   )
 
 set(
@@ -64,7 +68,6 @@ foreach(PLUGIN ${IRODS_EXPERIMENTAL_API_PLUGINS})
 
   target_compile_definitions(${PLUGIN} PRIVATE ENABLE_RE ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED IRODS_ENABLE_SYSLOG)
   target_compile_options(${PLUGIN} PRIVATE -Wno-write-strings)
-  set_property(TARGET ${PLUGIN} PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
 endforeach()
 
 install(

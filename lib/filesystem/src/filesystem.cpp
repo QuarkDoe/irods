@@ -15,9 +15,6 @@
     #include "rsDataObjRename.hpp"
     #include "rsDataObjUnlink.hpp"
     #include "rsDataObjChksum.hpp"
-    #include "rsOpenCollection.hpp"
-    #include "rsCloseCollection.hpp"
-    #include "rsReadCollection.hpp"
     #include "rsModAccessControl.hpp"
     #include "rsCollCreate.hpp"
     #include "rsModColl.hpp"
@@ -32,9 +29,6 @@
     #include "dataObjRename.h"
     #include "dataObjUnlink.h"
     #include "dataObjChksum.h"
-    #include "openCollection.h"
-    #include "closeCollection.h"
-    #include "readCollection.h"
     #include "modAccessControl.h"
     #include "collCreate.h"
     #include "modColl.h"
@@ -63,7 +57,6 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
-#include <optional>
 
 namespace irods::experimental::filesystem::NAMESPACE_IMPL
 {
@@ -74,9 +67,6 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 #ifdef IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
         int rsDataObjCopy(rsComm_t* _comm, dataObjCopyInp_t* _dataObjCopyInp)
         {
-            //_dataObjCopyInp->srcDataObjInp.oprType = COPY_SRC;
-            //_dataObjCopyInp->destDataObjInp.oprType = COPY_DEST;
-
             transferStat_t* ts_ptr{};
 
             const auto ec = rsDataObjCopy(_comm, _dataObjCopyInp, &ts_ptr);
@@ -122,19 +112,6 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
             return perms::null;
         }
 
-        auto get_zone_name(const path& _p) -> std::optional<std::string>
-        {
-            using difference_type = path::iterator::difference_type;
-
-            auto iter = std::begin(_p);
-
-            if (constexpr difference_type hops = 2; std::distance(iter, std::end(_p)) >= hops) {
-                return *++iter;
-            }
-            
-            return std::nullopt;
-        }
-
         auto set_permissions(rxComm& _comm, const path& _p, stat& _s) -> void
         {
             if (DATA_OBJ_T == _s.type) {
@@ -147,7 +124,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
                 irods::experimental::query_builder qb;
 
-                if (const auto zone = get_zone_name(_p); zone) {
+                if (const auto zone = zone_name(_p); zone) {
                     qb.zone_hint(*zone);
                 }
 
@@ -158,7 +135,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
             else if (COLL_OBJ_T == _s.type) {
                 irods::experimental::query_builder qb;
 
-                if (const auto zone = get_zone_name(_p); zone) {
+                if (const auto zone = zone_name(_p); zone) {
                     qb.zone_hint(*zone);
                 }
 
@@ -249,6 +226,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
             if (is_data_object(s)) {
                 dataObjInp_t input{};
+                at_scope_exit free_memory{[&input] { clearKeyVal(&input.condInput); }};
 
                 input.oprType = _opts.unregister ? UNREG_OPR : 0;
 
@@ -267,6 +245,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
                 }
 
                 collInp_t input{};
+                at_scope_exit free_memory{[&input] { clearKeyVal(&input.condInput); }};
 
                 std::strncpy(input.collName, _p.c_str(), std::strlen(_p.c_str()));
 
@@ -302,10 +281,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
         auto do_metadata_op(rxComm& _comm, const path& _p, const metadata& _metadata, std::string_view op) -> void
         {
-            if (_p.empty()) {
-                throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
-            }
-
+            detail::throw_if_path_is_empty(_p);
             detail::throw_if_path_length_exceeds_limit(_p);
 
             modAVUMetadataInp_t input{};
@@ -420,6 +396,11 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
         dataObjCopyInp_t input{};
 
+        at_scope_exit free_memory{[&input] {
+            clearKeyVal(&input.srcDataObjInp.condInput);
+            clearKeyVal(&input.destDataObjInp.condInput);
+        }};
+
         if (const auto s = status(_comm, _to); exists(s)) {
             if (equivalent(_comm, _from, _to)) {
                 throw filesystem_error{"paths cannot point to the same object", _from, _to, make_error_code(SAME_SRC_DEST_PATHS_ERR)};
@@ -483,10 +464,8 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
     auto create_collection(rxComm& _comm, const path& _p, const path& _existing_p) -> bool
     {
-        if (_p.empty() || _existing_p.empty()) {
-            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
-        }
-
+        detail::throw_if_path_is_empty(_p);
+        detail::throw_if_path_is_empty(_existing_p);
         detail::throw_if_path_length_exceeds_limit(_p);
         detail::throw_if_path_length_exceeds_limit(_existing_p);
 
@@ -514,13 +493,14 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
         }
 
         collInp_t input{};
+        at_scope_exit free_memory{[&input] { clearKeyVal(&input.condInput); }};
         std::strncpy(input.collName, _p.c_str(), std::strlen(_p.c_str()));
         addKeyVal(&input.condInput, RECURSIVE_OPR__KW, "");
 
         return rxCollCreate(&_comm, &input) == 0;
     }
 
-    auto exists(object_status _s) noexcept -> bool
+    auto exists(const object_status& _s) noexcept -> bool
     {
         return status_known(_s) && _s.type() != object_type::not_found;
     }
@@ -530,11 +510,44 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
         return exists(status(_comm, _p));
     }
 
+    auto is_collection_registered(rxComm& _comm, const path& _p) -> bool
+    {
+        detail::throw_if_path_is_empty(_p);
+        detail::throw_if_path_length_exceeds_limit(_p);
+
+        irods::experimental::query_builder qb;
+
+        if (const auto zone = zone_name(_p); zone) {
+            qb.zone_hint(*zone);
+        }
+
+        const auto gql = fmt::format("select COLL_ID where COLL_NAME = '{}'", _p.c_str());
+
+        return qb.build(_comm, gql).size() > 0;
+    }
+
+    auto is_data_object_registered(rxComm& _comm, const path& _p) -> bool
+    {
+        detail::throw_if_path_is_empty(_p);
+        detail::throw_if_path_length_exceeds_limit(_p);
+
+        irods::experimental::query_builder qb;
+
+        if (const auto zone = zone_name(_p); zone) {
+            qb.zone_hint(*zone);
+        }
+
+        const auto gql = fmt::format("select DATA_ID where COLL_NAME = '{}' and DATA_NAME = '{}'",
+                                     _p.parent_path().c_str(),
+                                     _p.object_name().c_str());
+
+        return qb.build(_comm, gql).size() > 0;
+    }
+
     auto equivalent(rxComm& _comm, const path& _p1, const path& _p2) -> bool
     {
-        if (_p1.empty() || _p2.empty()) {
-            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
-        }
+        detail::throw_if_path_is_empty(_p1);
+        detail::throw_if_path_is_empty(_p2);
 
         const auto p1_info = stat(_comm, _p1);
 
@@ -561,24 +574,54 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
     auto data_object_size(rxComm& _comm, const path& _p) -> std::uintmax_t
     {
-        const auto s = stat(_comm, _p);
+        detail::throw_if_path_is_empty(_p);
+        detail::throw_if_path_length_exceeds_limit(_p);
 
-        if (s.error < 0) {
-            throw filesystem_error{"cannot get size", _p, make_error_code(s.error)};
+        if (!is_data_object(_comm, _p)) {
+            throw filesystem_error{"path does not point to a data object", _p, make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
-        if (s.type == UNKNOWN_OBJ_T) {
-            throw filesystem_error{"path does not exist", _p, make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
+        // Fetch information for good replicas only (i.e. DATA_REPL_STATUS = '1').
+        const auto gql = fmt::format("select DATA_SIZE, DATA_MODIFY_TIME "
+                                     "where"
+                                     " COLL_NAME = '{}' and"
+                                     " DATA_NAME = '{}' and"
+                                     " DATA_REPL_STATUS = '1'",
+                                     _p.parent_path().c_str(),
+                                     _p.object_name().c_str());
+
+        irods::experimental::query_builder qb;
+
+        if (const auto zone = zone_name(_p); zone) {
+            qb.zone_hint(*zone);
         }
 
-        if (s.type == DATA_OBJ_T) {
-            return static_cast<std::uintmax_t>(s.size);
+        auto query = qb.build(_comm, gql);
+
+        if (query.size() == 0) {
+            throw filesystem_error{"no good replica found", _p, make_error_code(SYS_NO_GOOD_REPLICA)};
         }
 
-        return 0;
+        // This implementation assumes that any good replica will always satisfy
+        // the requirement within the loop, therefore the first iteration always causes
+        // the size to be captured. The size object should be empty if and only if there
+        // are no good replicas.
+        std::uint64_t latest_mtime = 0;
+        std::uintmax_t size = 0;
+
+        for (auto&& row : query) {
+            // As we iterate over the replicas, compare the mtimes and capture the size
+            // of the latest good replica.
+            if (const auto current_mtime = std::stoull(row[1]); current_mtime > latest_mtime) {
+                latest_mtime = current_mtime;
+                size = std::stoull(row[0]);
+            }
+        }
+
+        return size;
     }
 
-    auto is_collection(object_status _s) noexcept -> bool
+    auto is_collection(const object_status& _s) noexcept -> bool
     {
         return _s.type() == object_type::collection;
     }
@@ -588,13 +631,30 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
         return is_collection(status(_comm, _p));
     }
 
+    auto is_special_collection(rxComm& _comm, const path& _p) -> bool
+    {
+        detail::throw_if_path_is_empty(_p);
+        detail::throw_if_path_length_exceeds_limit(_p);
+
+        const auto gql = fmt::format("select COLL_TYPE, COLL_INFO_1, COLL_INFO_2 "
+                                     "where COLL_NAME = '{}'", _p.c_str());
+
+        irods::experimental::query_builder qb;
+
+        if (const auto zone = zone_name(_p); zone) {
+            qb.zone_hint(*zone);
+        }
+
+        for (auto&& row : qb.build(_comm, gql)) {
+            return !row[0].empty() && (!row[1].empty() || !row[2].empty());
+        }
+
+        return false;
+    }
+
     auto is_empty(rxComm& _comm, const path& _p) -> bool
     {
         const auto s = status(_comm, _p);
-
-        if (is_data_object(s)) {
-            return data_object_size(_comm, _p) == 0;
-        }
 
         if (is_collection(s)) {
             return is_collection_empty(_comm, _p);
@@ -603,7 +663,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
         throw filesystem_error{"cannot check emptiness: unknown object type", _p, make_error_code(CAT_NOT_A_DATAOBJ_AND_NOT_A_COLLECTION)};
     }
 
-    auto is_other(object_status _s) noexcept -> bool
+    auto is_other(const object_status& _s) noexcept -> bool
     {
         return _s.type() == object_type::unknown;
     }
@@ -613,7 +673,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
         return is_other(status(_comm, _p));
     }
 
-    auto is_data_object(object_status _s) noexcept -> bool
+    auto is_data_object(const object_status& _s) noexcept -> bool
     {
         return _s.type() == object_type::data_object;
     }
@@ -625,51 +685,55 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
     auto last_write_time(rxComm& _comm, const path& _p) -> object_time_type
     {
-        const auto s = stat(_comm, _p);
+        std::string gql;
 
-        if (s.error < 0 || s.type == UNKNOWN_OBJ_T) {
-            throw filesystem_error{"cannot get mtime", _p, make_error_code(s.error)};
+        if (const auto s = status(_comm, _p); is_data_object(s)) {
+            // Fetch information for good replicas only (i.e. DATA_REPL_STATUS = '1').
+            gql = fmt::format("select max(DATA_MODIFY_TIME) "
+                              "where"
+                              " COLL_NAME = '{}' and"
+                              " DATA_NAME = '{}' and"
+                              " DATA_REPL_STATUS = '1'",
+                              _p.parent_path().c_str(),
+                              _p.object_name().c_str());
+        }
+        else if (is_collection(s)) {
+            gql = fmt::format("select COLL_MODIFY_TIME where COLL_NAME = '{}'", _p.c_str());
+        }
+        else {
+            throw filesystem_error{"cannot get mtime", _p, make_error_code(INVALID_OBJECT_TYPE)};
         }
 
-        return object_time_type{std::chrono::seconds{s.mtime}};
+        irods::experimental::query_builder qb;
+
+        if (const auto zone = zone_name(_p); zone) {
+            qb.zone_hint(*zone);
+        }
+
+        for (auto&& row : qb.build(_comm, gql)) {
+            return object_time_type{std::chrono::seconds{std::stoull(row[0])}};
+        }
+
+        throw filesystem_error{"cannot get mtime", _p, make_error_code(CAT_NO_ROWS_FOUND)};
     }
 
     auto last_write_time(rxComm& _comm, const path& _p, object_time_type _new_time) -> void
     {
         detail::throw_if_path_length_exceeds_limit(_p);
 
-        const auto seconds = _new_time.time_since_epoch();
-        std::stringstream new_time;
-        new_time << std::setfill('0') << std::setw(11) << std::to_string(seconds.count());
-
-        const auto object_status = status(_comm, _p);
-
-        if (is_collection(object_status)) {
-            collInp_t input{};
-            std::strncpy(input.collName, _p.c_str(), std::strlen(_p.c_str()));
-            addKeyVal(&input.condInput, COLLECTION_MTIME_KW, new_time.str().c_str());
-
-            if (const auto ec = rxModColl(&_comm, &input); ec != 0) {
-                throw filesystem_error{"cannot set mtime", _p, make_error_code(ec)};
-            }
+        if (!is_collection(_comm, _p)) {
+            throw filesystem_error{"path does not point to a collection", _p, make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
-        else if (is_data_object(object_status)) {
-            dataObjInfo_t info{};
-            std::strncpy(info.objPath, _p.c_str(), std::strlen(_p.c_str()));
 
-            keyValPair_t reg_params{};
-            addKeyVal(&reg_params, DATA_MODIFY_KW, new_time.str().c_str());
+        const auto timestamp = fmt::format("{:011}", _new_time.time_since_epoch().count());
 
-            modDataObjMeta_t input{};
-            input.dataObjInfo = &info;
-            input.regParam = &reg_params;
+        collInp_t input{};
+        at_scope_exit free_memory{[&input] { clearKeyVal(&input.condInput); }};
+        std::strncpy(input.collName, _p.c_str(), std::strlen(_p.c_str()));
+        addKeyVal(&input.condInput, COLLECTION_MTIME_KW, timestamp.c_str());
 
-            if (const auto ec = rxModDataObjMeta(&_comm, &input); ec != 0) {
-                throw filesystem_error{"cannot set mtime", _p, make_error_code(ec)};
-            }
-        }
-        else {
-            throw filesystem_error{"cannot set mtime of unknown object type", _p, make_error_code(SYS_INTERNAL_ERR)};
+        if (const auto ec = rxModColl(&_comm, &input); ec != 0) {
+            throw filesystem_error{"cannot set mtime", _p, make_error_code(ec)};
         }
     }
 
@@ -698,7 +762,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
         irods::experimental::query_builder qb;
 
-        if (const auto zone = get_zone_name(_p); zone) {
+        if (const auto zone = zone_name(_p); zone) {
             qb.zone_hint(*zone);
         }
 
@@ -737,7 +801,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
         irods::experimental::query_builder qb;
 
-        if (const auto zone = get_zone_name(_p); zone) {
+        if (const auto zone = zone_name(_p); zone) {
             qb.zone_hint(*zone);
         }
 
@@ -819,10 +883,8 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
     auto rename(rxComm& _comm, const path& _old_p, const path& _new_p) -> void
     {
-        if (_old_p.empty() || _new_p.empty()) {
-            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
-        }
-
+        detail::throw_if_path_is_empty(_old_p);
+        detail::throw_if_path_is_empty(_new_p);
         detail::throw_if_path_length_exceeds_limit(_old_p);
         detail::throw_if_path_length_exceeds_limit(_new_p);
 
@@ -869,12 +931,10 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
             // Case 3: "_new_p" is a non-existing collection w/ the following requirements:
             //  1. Does not end with a collection separator.
             //  2. The parent collection must exist.
-            else if (detail::is_separator(_new_p.string().back()))
-            {
+            else if (detail::is_separator(_new_p.string().back())) {
                 throw filesystem_error{"path cannot end with a separator", _new_p, make_error_code(SYS_INVALID_INPUT_PARAM)};
             }
-            else if (!is_collection(_comm, _new_p.parent_path()))
-            {
+            else if (!is_collection(_comm, _new_p.parent_path())) {
                 throw filesystem_error{"path does not exist", _new_p.parent_path(), make_error_code(OBJ_PATH_DOES_NOT_EXIST)};
             }
         }
@@ -896,71 +956,47 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
         rename(_comm, _old_p, _new_p);
     }
 
-    auto data_object_checksum(rxComm& _comm,
-                              const path& _p,
-                              const std::variant<int, replica_number>& _replica_number,
-                              verification_calculation _calculation)
-        -> std::vector<checksum>
+    auto data_object_checksum(rxComm& _comm, const path& _p) -> std::string
     {
-        if (_p.empty()) {
-            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
-        }
-
+        detail::throw_if_path_is_empty(_p);
         detail::throw_if_path_length_exceeds_limit(_p);
 
         if (!is_data_object(_comm, _p)) {
             throw filesystem_error{"path does not point to a data object", _p, make_error_code(SYS_INVALID_INPUT_PARAM)};
         }
 
-        if (verification_calculation::if_empty == _calculation ||
-            verification_calculation::always == _calculation)
-        {
-            dataObjInp_t input{};
-            std::string replica_number_string;
-
-            if (const auto* v = std::get_if<replica_number>(&_replica_number); v) {
-                addKeyVal(&input.condInput, CHKSUM_ALL_KW, "");
-            }
-            else if (const auto *i = std::get_if<int>(&_replica_number); i && *i >= 0) {
-                replica_number_string = std::to_string(*i);
-                addKeyVal(&input.condInput, REPL_NUM_KW, replica_number_string.c_str());
-            }
-            else {
-                throw filesystem_error{"cannot get checksum: invalid replica number", make_error_code(SYS_INVALID_INPUT_PARAM)};
-            }
-
-            std::strncpy(input.objPath, _p.c_str(), std::strlen(_p.c_str()));
-
-            if (verification_calculation::always == _calculation) {
-                addKeyVal(&input.condInput, FORCE_CHKSUM_KW, "");
-            }
-
-            char* checksum{};
-
-            if (const auto ec = rxDataObjChksum(&_comm, &input, &checksum); ec < 0) {
-                throw filesystem_error{"cannot get checksum", _p, make_error_code(ec)};
-            }
-        }
-
-        std::string sql = "select DATA_REPL_NUM, DATA_CHECKSUM, DATA_SIZE, DATA_REPL_STATUS where DATA_NAME = '";
-        sql += _p.object_name();
-        sql += "' and COLL_NAME = '";
-        sql += _p.parent_path();
-        sql += "'";
+        // Fetch information for good replicas only (i.e. DATA_REPL_STATUS = '1').
+        const auto gql = fmt::format("select DATA_CHECKSUM, DATA_MODIFY_TIME "
+                                     "where"
+                                     " COLL_NAME = '{}' and"
+                                     " DATA_NAME = '{}' and"
+                                     " DATA_REPL_STATUS = '1'",
+                                     _p.parent_path().c_str(),
+                                     _p.object_name().c_str());
 
         irods::experimental::query_builder qb;
 
-        if (const auto zone = get_zone_name(_p); zone) {
+        if (const auto zone = zone_name(_p); zone) {
             qb.zone_hint(*zone);
         }
 
-        std::vector<checksum> checksums;
+        std::uintmax_t latest_mtime = 0;
+        std::string checksum;
 
-        for (const auto& row : qb.build(_comm, sql)) {
-            checksums.push_back({std::stoi(row[0]), row[1], std::stoull(row[2]), row[3] == "1"});
+        // This implementation assumes that any good replica will always satisfy
+        // the requirement within the loop, therefore the first iteration always causes
+        // the checksum to be captured. The checksum object should be empty if and only if there
+        // are no good replicas.
+        for (const auto& row : qb.build(_comm, gql)) {
+            // As we iterate over the replicas, compare the mtimes and capture the checksum
+            // of the latest good replica.
+            if (const auto current_mtime = std::stoull(row[1]); current_mtime > latest_mtime) {
+                latest_mtime = current_mtime;
+                checksum = row[0];
+            }
         }
 
-        return checksums;
+        return checksum;
     }
 
     auto status(rxComm& _comm, const path& _p) -> object_status
@@ -1007,17 +1043,14 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
         return status;
     }
 
-    auto status_known(object_status _s) noexcept -> bool
+    auto status_known(const object_status& _s) noexcept -> bool
     {
         return _s.type() != object_type::none;
     }
 
     auto get_metadata(rxComm& _comm, const path& _p) -> std::vector<metadata>
     {
-        if (_p.empty()) {
-            throw filesystem_error{"empty path", make_error_code(SYS_INVALID_INPUT_PARAM)};
-        }
-
+        detail::throw_if_path_is_empty(_p);
         detail::throw_if_path_length_exceeds_limit(_p);
 
         std::string sql;
@@ -1040,7 +1073,7 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
 
         irods::experimental::query_builder qb;
 
-        if (const auto zone = get_zone_name(_p); zone) {
+        if (const auto zone = zone_name(_p); zone) {
             qb.zone_hint(*zone);
         }
 

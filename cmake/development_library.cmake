@@ -5,7 +5,7 @@ install(
   TARGETS
     RodsAPIs
   ARCHIVE
-    DESTINATION usr/lib
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}
     COMPONENT ${IRODS_PACKAGE_COMPONENT_DEVELOPMENT_NAME}
   )
 
@@ -27,7 +27,9 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/connection_pool.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/cpUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/dispatch_processor.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/dns_cache.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/dstream.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/entity.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/experimental_plugin_framework.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/fsckUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/future.hpp
@@ -35,7 +37,9 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/getUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/group.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/guiProgressCallback.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/hostname_cache.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_assert.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/irods_at_scope_exit.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_constants.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_factory.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_auth_manager.hpp
@@ -93,12 +97,11 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_tcp_object.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_threads.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/irods_virtual_path.hpp
-  ${CMAKE_SOURCE_DIR}/lib/core/include/query_builder.hpp
-  ${CMAKE_SOURCE_DIR}/lib/core/include/query_processor.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/key_value_proxy.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/lifetime_manager.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/lsUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/mcollUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/metadata.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/microservice.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/miscUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/mkdirUtil.h
@@ -114,6 +117,8 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/phymvUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/procApiRequest.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/putUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/query_builder.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/query_processor.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/rcConnect.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/rcGlobalExtern.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/rcMisc.h
@@ -121,6 +126,8 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/regUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/region.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/replUtil.h
+  ${CMAKE_SOURCE_DIR}/lib/core/include/replica.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/replica_proxy.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/resource_administration.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/rmdirUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/rmUtil.h
@@ -154,6 +161,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/core/include/trimUtil.h
   ${CMAKE_SOURCE_DIR}/lib/core/include/user.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/user_administration.hpp
+  ${CMAKE_SOURCE_DIR}/lib/core/include/version.hpp
   ${CMAKE_SOURCE_DIR}/lib/core/include/with_durability.hpp
   )
 
@@ -190,6 +198,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/api/include/closeCollection.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/collCreate.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/collRepl.h
+  ${CMAKE_SOURCE_DIR}/lib/api/include/data_object_finalize.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/data_object_modify_info.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/dataCopy.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/dataGet.h
@@ -312,6 +321,7 @@ set(
   ${CMAKE_SOURCE_DIR}/lib/api/include/replica_open.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/replica_close.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/ticketAdmin.h
+  ${CMAKE_SOURCE_DIR}/lib/api/include/touch.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/unbunAndRegPhyBunfile.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/unregDataObj.h
   ${CMAKE_SOURCE_DIR}/lib/api/include/userAdmin.h
@@ -332,6 +342,7 @@ set(
   ${CMAKE_SOURCE_DIR}/server/api/include/rs_get_file_descriptor_info.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rs_replica_open.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rs_replica_close.hpp
+  ${CMAKE_SOURCE_DIR}/server/api/include/rs_touch.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsAuthCheck.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsAuthPluginRequest.hpp
   ${CMAKE_SOURCE_DIR}/server/api/include/rsAuthRequest.hpp
@@ -474,11 +485,12 @@ set(
   ${CMAKE_SOURCE_DIR}/server/core/include/collection.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/dataObjOpr.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/replica_access_table.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/replica_state_table.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/fileOpr.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/finalize_utilities.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/initServer.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irodsReServer.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_api_calling_functions.hpp
-  ${CMAKE_SOURCE_DIR}/server/core/include/irods_at_scope_exit.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_collection_object.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_data_object.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_database_constants.hpp
@@ -511,6 +523,8 @@ set(
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_server_control_plane.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_server_state.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/irods_structured_object.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/json_deserialization.hpp
+  ${CMAKE_SOURCE_DIR}/server/core/include/json_serialization.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/miscServerFunct.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/objDesc.hpp
   ${CMAKE_SOURCE_DIR}/server/core/include/objMetaOpr.hpp
@@ -575,7 +589,7 @@ install(
   ${IRODS_SERVER_ICAT_INCLUDE_HEADERS}
   ${IRODS_SERVER_RE_INCLUDE_HEADERS}
   ${IRODS_SERVER_DRIVERS_INCLUDE_HEADERS}
-  DESTINATION usr/include/irods
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/irods
   COMPONENT ${IRODS_PACKAGE_COMPONENT_DEVELOPMENT_NAME}
   )
 
@@ -590,7 +604,7 @@ install(
 # NOTE: The trailing slash in the "DIRECTORY" argument is significant. DO NOT REMOVE IT!
 install(
   DIRECTORY ${CMAKE_SOURCE_DIR}/lib/filesystem/include/
-  DESTINATION usr/include/irods
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/irods
   COMPONENT ${IRODS_PACKAGE_COMPONENT_DEVELOPMENT_NAME}
   FILES_MATCHING
     PATTERN */filesystem.hpp
@@ -618,7 +632,7 @@ install(
 # NOTE: The trailing slash in the "DIRECTORY" argument is significant. DO NOT REMOVE IT!
 install(
   DIRECTORY ${CMAKE_SOURCE_DIR}/plugins/api/include/
-  DESTINATION usr/include/irods/plugins/api
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/irods/plugins/api
   COMPONENT ${IRODS_PACKAGE_COMPONENT_DEVELOPMENT_NAME}
   FILES_MATCHING
     PATTERN */api_plugin_number.h
@@ -637,7 +651,7 @@ install(
 # NOTE: The trailing slash in the "DIRECTORY" argument is significant. DO NOT REMOVE IT!
 install(
   DIRECTORY ${CMAKE_SOURCE_DIR}/lib/core/include/transport/
-  DESTINATION usr/include/irods/transport
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/irods/transport
   COMPONENT ${IRODS_PACKAGE_COMPONENT_DEVELOPMENT_NAME}
   FILES_MATCHING
     PATTERN */transport/transport.hpp
@@ -647,7 +661,7 @@ install(
 install(
   EXPORT
   IRODSTargets
-  DESTINATION usr/lib/irods/cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/irods/cmake
   COMPONENT ${IRODS_PACKAGE_COMPONENT_DEVELOPMENT_NAME}
   )
 

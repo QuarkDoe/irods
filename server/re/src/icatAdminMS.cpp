@@ -1,8 +1,3 @@
-/**
- * @file  icatAdminMS.cpp
- *
- */
-
 #include "icatHighLevelRoutines.hpp"
 #include "rcMisc.h"
 #include "generalAdmin.h"
@@ -439,8 +434,7 @@ msiRenameLocalZone( msParam_t* oldName, msParam_t* newName, ruleExecInfo_t *rei 
  * \post none
  * \sa none
  **/
-int
-msiRenameCollection(msParam_t* oldName, msParam_t* newName, ruleExecInfo_t *rei)
+int msiRenameCollection(msParam_t* oldName, msParam_t* newName, ruleExecInfo_t *rei)
 {
     std::string svc_role;
 
@@ -449,7 +443,7 @@ msiRenameCollection(msParam_t* oldName, msParam_t* newName, ruleExecInfo_t *rei)
         return ret.code();
     }
 
-    using logger = irods::experimental::log;
+    using log = irods::experimental::log;
 
     if (irods::CFG_SERVICE_ROLE_PROVIDER == svc_role) {
         namespace fs = irods::experimental::filesystem;
@@ -457,23 +451,94 @@ msiRenameCollection(msParam_t* oldName, msParam_t* newName, ruleExecInfo_t *rei)
         const fs::path src_path = static_cast<const char*>(oldName->inOutStruct);
         const fs::path dst_path = static_cast<const char*>(newName->inOutStruct);
 
+        log::microservice::debug("{} :: src_path={}, dst_path={}", __func__, src_path.c_str(), dst_path.c_str());
+
         try {
+            if (!fs::server::is_collection(*rei->rsComm, src_path)) {
+                return NOT_A_COLLECTION;
+            }
+
+            if (const auto s = fs::server::status(*rei->rsComm, dst_path);
+                fs::server::exists(s) && !fs::server::is_collection(s))
+            {
+                return NOT_A_COLLECTION;
+            }
+
             fs::server::rename(*rei->rsComm, src_path, dst_path);
+
+            return 0;
         }
         catch (const fs::filesystem_error& e) {
-            logger::microservice::error("msiRenameCollection failed: [{}]", e.what());
+            log::microservice::error("msiRenameCollection failed: [{}]", e.what());
             return e.code().value();
         }
     }
-    else if (irods::CFG_SERVICE_ROLE_CONSUMER == svc_role) {
+
+    if (irods::CFG_SERVICE_ROLE_CONSUMER == svc_role) {
         return SYS_NO_RCAT_SERVER_ERR;
     }
-    else {
-        logger::microservice::error("role not supported [{}]", svc_role);
-        return SYS_SERVICE_ROLE_NOT_SUPPORTED;
+
+    log::microservice::error("role not supported [{}]", svc_role);
+
+    return SYS_SERVICE_ROLE_NOT_SUPPORTED;
+}
+
+/// Renames the local zone collection.
+///
+/// \param[in] _new_zone_name The new name for the zone collection. The new name must not
+///                           exist.
+/// \param[in] _rei           The ::RuleExecInfo managed by the system. This parameter
+///                           must be ignored.
+///
+/// \return An integer.
+/// \retval 0        On success.
+/// \retval Non-zero Otherwise.
+///
+/// \since 4.2.9
+int msiRenameLocalZoneCollection(msParam_t* _new_zone_name, ruleExecInfo_t* _rei)
+{
+    using log = irods::experimental::log;
+
+    std::string svc_role;
+
+    if (irods::error ret = get_catalog_service_role(svc_role); !ret.ok()) {
+        irods::log(PASS(ret));
+        return ret.code();
     }
 
-    return 0;
+    if (irods::CFG_SERVICE_ROLE_PROVIDER == svc_role) {
+        namespace fs = irods::experimental::filesystem;
+
+        const fs::path root = "/";
+        const auto src_path = root / _rei->rsComm->myEnv.rodsZone;
+        const auto* new_zone_name = static_cast<const char*>(_new_zone_name->inOutStruct);
+
+        log::microservice::debug("{} :: src_path={}, new_zone_name={}", __func__, src_path.c_str(), new_zone_name);
+
+        try {
+            if (src_path == root / new_zone_name) {
+                return 0;
+            }
+
+            if (fs::server::exists(*_rei->rsComm, root / new_zone_name)) {
+                return CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME;
+            }
+
+            return chlRenameColl(_rei->rsComm, src_path.c_str(), new_zone_name);
+        }
+        catch (const fs::filesystem_error& e) {
+            log::microservice::error("{} :: Failed to rename local zone collection.", __func__);
+            return e.code().value();
+        }
+    }
+
+    if (irods::CFG_SERVICE_ROLE_CONSUMER == svc_role) {
+        return SYS_NO_RCAT_SERVER_ERR;
+    }
+
+    log::microservice::error("role not supported [{}]", svc_role);
+
+    return SYS_SERVICE_ROLE_NOT_SUPPORTED;
 }
 
 /**

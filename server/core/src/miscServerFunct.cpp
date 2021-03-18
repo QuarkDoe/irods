@@ -33,6 +33,7 @@
 #include "rsGenQuery.hpp"
 #include "rsModAVUMetadata.hpp"
 #include "rsModAccessControl.hpp"
+#include "rsFileClose.hpp"
 
 #include <string>
 #include <vector>
@@ -72,16 +73,24 @@ using leaf_bundle_t = irods::resource_manager::leaf_bundle_t;
 #include <boost/filesystem.hpp>
 
 namespace {
-    int l3OpenByHost( rsComm_t *rsComm, int l3descInx, int flags ) {
-        fileOpenInp_t fileOpenInp{};
-        rstrcpy( fileOpenInp.resc_hier_, FileDesc[l3descInx].rescHier, MAX_NAME_LEN );
-        rstrcpy( fileOpenInp.fileName, FileDesc[l3descInx].fileName, MAX_NAME_LEN );
-        rstrcpy( fileOpenInp.objPath, FileDesc[l3descInx].objPath, MAX_NAME_LEN );
-        fileOpenInp.mode = FileDesc[l3descInx].mode;
-        fileOpenInp.flags = flags;
 
-        return rsFileOpenByHost(rsComm, &fileOpenInp, FileDesc[l3descInx].rodsServerHost);
-    }
+int l3OpenByHost( rsComm_t *rsComm, int l3descInx, int flags ) {
+    fileOpenInp_t fileOpenInp{};
+    rstrcpy( fileOpenInp.resc_hier_, FileDesc[l3descInx].rescHier, MAX_NAME_LEN );
+    rstrcpy( fileOpenInp.fileName, FileDesc[l3descInx].fileName, MAX_NAME_LEN );
+    rstrcpy( fileOpenInp.objPath, FileDesc[l3descInx].objPath, MAX_NAME_LEN );
+    fileOpenInp.mode = FileDesc[l3descInx].mode;
+    fileOpenInp.flags = flags;
+
+    return rsFileOpenByHost(rsComm, &fileOpenInp, FileDesc[l3descInx].rodsServerHost);
+} // l3OpenByHost
+
+int _l3Close( rsComm_t *rsComm, int l3descInx ) {
+    fileCloseInp_t fileCloseInp{};
+    fileCloseInp.fileInx = l3descInx;
+    return rsFileClose( rsComm, &fileCloseInp );
+} // _l3Close
+
 }
 
 int
@@ -2711,8 +2720,8 @@ readStartupPack(
     }
 
     /* always use XML_PROT for the startup pack */
-    int status = unpackStruct( inputStructBBuf.buf, ( void ** ) startupPack,
-                           "StartupPack_PI", RodsPackTable, XML_PROT );
+    int status = unpack_struct( inputStructBBuf.buf, ( void ** ) startupPack,
+                           "StartupPack_PI", RodsPackTable, XML_PROT, nullptr);
 
     clearBBuf( &inputStructBBuf );
 
@@ -3120,61 +3129,4 @@ irods::error list_rule_plugin_instances(
     }
 
     return SUCCESS();
-}
-
-void applyMetadataFromKVP(rsComm_t *rsComm, dataObjInp_t *dataObjInp) {
-    if ( !rsComm ) {
-        THROW( SYS_INTERNAL_NULL_INPUT_ERR, "null rsComm passed in" );
-    }
-    if ( !dataObjInp ) {
-        THROW( SYS_INTERNAL_NULL_INPUT_ERR, "null dataObjInp passed in" );
-    }
-    if ( const char* serialized_metadata = getValByKey( &dataObjInp->condInput, METADATA_INCLUDED_KW ) ) {
-        std::vector<std::string> deserialized_metadata = irods::deserialize_metadata( serialized_metadata );
-        for ( size_t i = 0; i + 2 < deserialized_metadata.size(); i += 3 ) {
-            modAVUMetadataInp_t modAVUMetadataInp;
-            memset( &modAVUMetadataInp, 0, sizeof( modAVUMetadataInp ) );
-
-            modAVUMetadataInp.arg0 = strdup( "add" );
-            modAVUMetadataInp.arg1 = strdup( "-d" );
-            modAVUMetadataInp.arg2 = strdup( dataObjInp->objPath );
-            modAVUMetadataInp.arg3 = strdup( deserialized_metadata[i].c_str() );
-            modAVUMetadataInp.arg4 = strdup( deserialized_metadata[i + 1].c_str() );
-            modAVUMetadataInp.arg5 = strdup( deserialized_metadata[i + 2].c_str() );
-            int status = rsModAVUMetadata( rsComm, &modAVUMetadataInp );
-            clearModAVUMetadataInp( &modAVUMetadataInp );
-            if ( CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME != status && status < 0 ) {
-                THROW( status, "rsModAVUMetadata failed" );
-            }
-        }
-    }
-}
-
-void applyACLFromKVP(rsComm_t *rsComm, dataObjInp_t *dataObjInp) {
-    if ( !rsComm ) {
-        THROW( SYS_INTERNAL_NULL_INPUT_ERR, "null rsComm passed in" );
-    }
-    if ( !dataObjInp ) {
-        THROW( SYS_INTERNAL_NULL_INPUT_ERR, "null dataObjInp passed in" );
-    }
-    if ( const char* serialized_acl = getValByKey( &dataObjInp->condInput, ACL_INCLUDED_KW ) ) {
-        std::vector<std::vector<std::string> > deserialized_acl = irods::deserialize_acl( serialized_acl );
-        for ( std::vector<std::vector<std::string> >::const_iterator iter = deserialized_acl.begin(); iter != deserialized_acl.end(); ++iter ) {
-            modAccessControlInp_t modAccessControlInp;
-            modAccessControlInp.recursiveFlag = 0;
-            modAccessControlInp.accessLevel = strdup( ( *iter )[0].c_str() );
-            modAccessControlInp.userName = ( char * )malloc( sizeof( char ) * NAME_LEN );
-            modAccessControlInp.zone = ( char * )malloc( sizeof( char ) * NAME_LEN );
-            const int status_parseUserName = parseUserName( ( *iter )[1].c_str(), modAccessControlInp.userName, modAccessControlInp.zone );
-            if ( status_parseUserName < 0 ) {
-                THROW( status_parseUserName, "parseUserName failed" );
-            }
-            modAccessControlInp.path = strdup( dataObjInp->objPath );
-            int status = rsModAccessControl( rsComm, &modAccessControlInp );
-            clearModAccessControlInp( &modAccessControlInp );
-            if ( status < 0 ) {
-                THROW( status, "rsModAccessControl failed" );
-            }
-        }
-    }
 }

@@ -1,37 +1,41 @@
-/*** Copyright (c), The Regents of the University of California            ***
- *** For more information please refer to files in the COPYRIGHT directory ***/
-
-/* initServer.cpp - Server initialization routines
- */
-
-#include "rcMisc.h"
-#include "initServer.hpp"
-#include "rodsConnect.h"
-#include "rodsConnect.h"
-#include "procLog.h"
-#include "resource.hpp"
-#include "rsGlobalExtern.hpp"
-#include "rcGlobalExtern.h"
 #include "genQuery.h"
-#include "rsIcatOpr.hpp"
-#include "miscServerFunct.hpp"
 #include "getRemoteZoneResc.h"
 #include "getRescQuota.h"
-#include "physPath.hpp"
-#include "rsLog.hpp"
-#include "sockComm.h"
+#include "initServer.hpp"
 #include "irods_stacktrace.hpp"
-#include "rsGenQuery.hpp"
+#include "miscServerFunct.hpp"
+#include "physPath.hpp"
+#include "procLog.h"
+#include "rcGlobalExtern.h"
+#include "rcMisc.h"
+#include "resource.hpp"
+#include "rodsConnect.h"
+#include "rodsErrorTable.h"
+#include "rsDataObjClose.hpp"
 #include "rsExecCmd.hpp"
+#include "rsGenQuery.hpp"
+#include "rsGlobalExtern.hpp"
+#include "rsIcatOpr.hpp"
+#include "rsLog.hpp"
+#include "rsModDataObjMeta.hpp"
+#include "rs_replica_close.hpp"
+#include "sockComm.h"
+#include "objMetaOpr.hpp"
 
-#include "irods_get_full_path_for_config_file.hpp"
+#include "finalize_utilities.hpp"
 #include "irods_configuration_parser.hpp"
-#include "irods_resource_backport.hpp"
-#include "irods_log.hpp"
 #include "irods_exception.hpp"
-#include "irods_threads.hpp"
-#include "irods_server_properties.hpp"
+#include "irods_get_full_path_for_config_file.hpp"
+#include "irods_log.hpp"
 #include "irods_random.hpp"
+#include "irods_resource_backport.hpp"
+#include "irods_server_properties.hpp"
+#include "irods_threads.hpp"
+#include "key_value_proxy.hpp"
+#include "replica_state_table.hpp"
+
+#define IRODS_REPLICA_ENABLE_SERVER_SIDE_API
+#include "replica_proxy.hpp"
 
 #include <vector>
 #include <set>
@@ -43,9 +47,141 @@
 #include <boost/optional.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <json.hpp>
+
 static time_t LastBrokenPipeTime = 0;
 static int BrokenPipeCnt = 0;
 
+namespace
+{
+    namespace rst = irods::replica_state_table;
+
+    auto calculate_checksum(RsComm& _comm, l1desc& _l1desc, DataObjInfo& _info) -> std::string
+    {
+        if (!std::string_view{_info.chksum}.empty()) {
+            _l1desc.chksumFlag = REG_CHKSUM;
+        }
+
+        char* checksum_string = nullptr;
+        irods::at_scope_exit free_checksum_string{[&checksum_string] { free(checksum_string); }};
+
+        auto destination_replica = irods::experimental::replica::make_replica_proxy(_info);
+
+        if (!_l1desc.chksumFlag) {
+            if (destination_replica.checksum().empty()) {
+                return {};
+            }
+            _l1desc.chksumFlag = VERIFY_CHKSUM;
+        }
+
+        if (VERIFY_CHKSUM == _l1desc.chksumFlag) {
+            if (!std::string_view{_l1desc.chksum}.empty()) {
+                return irods::verify_checksum(_comm, _info, _l1desc.chksum);
+            }
+
+            return {};
+        }
+
+        return irods::register_new_checksum(_comm, _info, _l1desc.chksum);
+    } // calculate_checksum
+
+    auto finalize_replica_opened_for_create_or_write(RsComm& _comm, DataObjInfo& _info, l1desc& _l1desc) -> void
+    {
+        namespace ir = irods::experimental::replica;
+
+        auto replica = ir::make_replica_proxy(_info);
+
+        if (!rst::contains(replica.data_id())) {
+            irods::log(LOG_ERROR, fmt::format(
+                "[{}:{}] - no entry found in replica state table for [{}]",
+                __FUNCTION__, __LINE__, replica.logical_path()));
+
+            return;
+        }
+
+        const auto cond_input = irods::experimental::make_key_value_proxy(_l1desc.dataObjInp->condInput);
+
+        //  - Check size in vault
+        try {
+            constexpr bool verify_size = false;
+            replica.size(irods::get_size_in_vault(_comm, *replica.get(), verify_size, _l1desc.dataSize));
+
+            //  - Compute checksum if flag is present
+            if (!cond_input.contains(CHKSUM_KW) && !replica.checksum().empty()) {
+                if (const auto checksum = calculate_checksum(_comm, _l1desc, *replica.get()); !checksum.empty()) {
+                    replica.checksum(checksum);
+                }
+            }
+        }
+        catch (const irods::exception& e) {
+            irods::log(e);
+        }
+
+        //  TODO?
+        //  - Update modify time to now
+
+        //  - Update replica status to stale
+        replica.replica_status(STALE_REPLICA);
+
+        if (cond_input.contains(CHKSUM_KW)) {
+            replica.checksum(cond_input.at(CHKSUM_KW).value());
+        }
+
+        rst::update(replica.data_id(), replica);
+
+        if (const int ec = rst::publish_to_catalog(_comm, replica.data_id(), replica.replica_number(), nlohmann::json{}); ec < 0) {
+            irods::log(LOG_ERROR, fmt::format(
+                "[{}:{}] - failed to publish to catalog:[{}]",
+                __FUNCTION__, __LINE__, ec));
+        }
+    } // finalize_replica_opened_for_create_or_write
+
+    void close_all_l1_descriptors(RsComm& _comm)
+    {
+        for (int fd = 3; fd < NUM_L1_DESC; ++fd) {
+            auto& l1desc = L1desc[fd];
+            if (FD_INUSE != l1desc.inuseFlag || l1desc.l3descInx < 3) {
+                continue;
+            }
+
+            if (!l1desc.dataObjInfo) {
+                irods::log(LOG_ERROR, fmt::format(
+                    "[{}:{}] - l1 descriptor [{}] has no data object info",
+                    __FUNCTION__, __LINE__, fd));
+
+                continue;
+            }
+
+            try {
+                auto [replica, replica_lm] = irods::experimental::replica::duplicate_replica(*l1desc.dataObjInfo);
+                struct l1desc fd_cache = irods::duplicate_l1_descriptor(l1desc);
+                const irods::at_scope_exit free_fd{[&fd_cache] { freeL1desc_struct(fd_cache); }};
+
+                // close the replica, free L1 descriptor
+                if (const int ec = irods::close_replica_without_catalog_update(_comm, fd); ec < 0) {
+                    irods::log(LOG_ERROR, fmt::format(
+                        "[{}:{}] - error closing replica; ec:[{}]",
+                        __FUNCTION__, __LINE__, ec));
+
+                    continue;
+                }
+
+                // Don't do anything for special collections - they do not enter intermediate state
+                if (replica.special_collection_info()) {
+                    continue;
+                }
+
+                // TODO: need to unlock read-locked replicas
+                if (OPEN_FOR_READ_TYPE != fd_cache.openType) {
+                    finalize_replica_opened_for_create_or_write(_comm, *replica.get(), fd_cache);
+                }
+            }
+            catch (const irods::exception& e) {
+                irods::log(e);
+            }
+        }
+    } // close_all_l1_descriptors
+} // anonymous namespace
 
 InformationRequiredToSafelyRenameProcess::InformationRequiredToSafelyRenameProcess(char**argv) {
     argv0 = argv[0];
@@ -457,6 +593,7 @@ initAgent( int processType, rsComm_t *rsComm ) {
         return status;
     }
 
+    irods::replica_state_table::init();
     initL1desc();
     initSpecCollDesc();
     status = initFileDesc();
@@ -539,16 +676,18 @@ cleanup() {
         irods::log(PASS(ret));
     }
 
+    if (INITIAL_DONE == InitialState) {
+        close_all_l1_descriptors(*ThisComm);
+
+        irods::replica_state_table::deinit();
+
+        disconnectAllSvrToSvrConn();
+    }
+
     if( irods::CFG_SERVICE_ROLE_PROVIDER == svc_role ) {
         disconnectRcat();
     }
 
-    if ( InitialState == INITIAL_DONE ) {
-        /* close all opened descriptors */
-        closeAllL1desc( ThisComm );
-        /* close any opened server to server connection */
-        disconnectAllSvrToSvrConn();
-    }
     irods::re_plugin_globals->global_re_mgr.call_stop_operations();
 }
 
@@ -611,101 +750,62 @@ rsPipeSignalHandler( int ) {
 }
 
 /// @brief parse the irodsHost file, creating address
-int initHostConfigByFile() {
-
-    // =-=-=-=-=-=-=-
-    // request fully qualified path to the config file
-    std::string cfg_file;
-    irods::error ret = irods::get_full_path_for_config_file(
-                           HOST_CONFIG_FILE,
-                           cfg_file );
-    if ( !ret.ok() ) {
-        rodsLog(
-            LOG_NOTICE,
-            "config file [%s] not found",
-            HOST_CONFIG_FILE );
-        return 0;
-    }
-
-    irods::configuration_parser cfg;
-    ret = cfg.load( cfg_file );
-    if ( !ret.ok() ) {
-        irods::log( PASS( ret ) );
-        return ret.code();
-    }
-
+int initHostConfigByFile()
+{
     try {
-        for ( const auto& el : cfg.get< const std::vector< boost::any > > ("host_entries") ) {
+        const auto& hosts_config = irods::get_server_property<nlohmann::json&>(irods::HOSTS_CONFIG_JSON_OBJECT_KW);
+
+        for (auto&& entry : hosts_config.at("host_entries")) {
             try {
-                const auto& host_entry = boost::any_cast<const std::unordered_map<std::string, boost::any>&>(el);
-                const auto& address_type = boost::any_cast<const std::string&>(host_entry.at("address_type"));
-                const auto& addresses = boost::any_cast<const std::vector<boost::any>&>(host_entry.at("addresses"));
+                auto* svr_host = static_cast<rodsServerHost_t*>(std::malloc(sizeof(rodsServerHost_t)));
+                std::memset(svr_host, 0, sizeof(rodsServerHost_t));
 
-                rodsServerHost_t* svr_host = ( rodsServerHost_t* )malloc( sizeof( rodsServerHost_t ) );
-                memset( svr_host, 0, sizeof( rodsServerHost_t ) );
-
-                if ( "remote" == address_type ) {
+                if (const auto type = entry.at("address_type").get<std::string>(); "remote" == type) {
                     svr_host->localFlag = REMOTE_HOST;
                 }
-                else if ( "local" == address_type ) {
+                else if ("local" == type) {
                     svr_host->localFlag = LOCAL_HOST;
-
                 }
                 else {
-                    free( svr_host );
-                    rodsLog(
-                            LOG_ERROR,
-                            "unsupported address type [%s]",
-                            address_type.c_str() );
+                    std::free(svr_host);
+                    rodsLog(LOG_ERROR, "unsupported address type [%s]", type.data());
                     continue;
                 }
 
-                // local zone
                 svr_host->zoneInfo = ZoneInfoHead;
-                if ( queueRodsServerHost(
-                            &HostConfigHead,
-                            svr_host ) < 0 ) {
-                    rodsLog(
-                            LOG_ERROR,
-                            "queueRodsServerHost failed" );
+
+                if (queueRodsServerHost(&HostConfigHead, svr_host) < 0) {
+                    rodsLog(LOG_ERROR, "queueRodsServerHost failed");
                 }
 
-                for ( const auto& el : addresses ) {
+                for (auto&& address : entry.at("addresses")) {
                     try {
-                        if ( queueHostName(
-                                    svr_host,
-                                    boost::any_cast<const std::string&>(
-                                        boost::any_cast<const std::unordered_map<std::string, boost::any>&>(el
-                                            ).at("address")
-                                        ).c_str(),
-                                    0 ) < 0 ) {
-                            rodsLog( LOG_ERROR, "queueHostName failed" );
+                        if (queueHostName(svr_host, address.at("address").get<std::string>().data(), 0) < 0) {
+                            rodsLog(LOG_ERROR, "queHostName failed");
                         }
-
-                    } catch ( const boost::bad_any_cast& e ) {
-                        irods::log( ERROR( INVALID_ANY_CAST, e.what() ) );
-                        continue;
-                    } catch ( const std::out_of_range& e ) {
-                        irods::log( ERROR( KEY_NOT_FOUND, e.what() ) );
                     }
-
-                } // for addr_idx
-            } catch ( const boost::bad_any_cast& e ) {
-                irods::log( ERROR( INVALID_ANY_CAST, e.what() ) );
-                continue;
-            } catch ( const std::out_of_range& e ) {
-                irods::log( ERROR( KEY_NOT_FOUND, e.what() ) );
+                    catch (const nlohmann::json::exception& e) {
+                        rodsLog(LOG_ERROR, "Could not process hosts_config.json address [address=%s, error_message=%s]",
+                                address.dump().data(), e.what());
+                    }
+                }
             }
-
-        } // for i
-    } catch ( const irods::exception& e ) {
-        irods::log( irods::error(e) );
+            catch (const nlohmann::json::exception& e) {
+                rodsLog(LOG_ERROR, "Could not process hosts_config.json entry [entry=%s, error_message=%s].",
+                        entry.dump().data(), e.what());
+            }
+        }
+    }
+    catch (const irods::exception& e) {
+        irods::log(irods::error(e));
         return e.code();
     }
-
+    catch (const std::exception& e) {
+        rodsLog(LOG_ERROR, "%s error.", __func__);
+        return SYS_INTERNAL_ERR;
+    }
 
     return 0;
-
 } // initHostConfigByFile
 
 int

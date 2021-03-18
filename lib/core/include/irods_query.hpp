@@ -24,7 +24,7 @@ namespace irods {
     template <typename connection_type>
     class query {
     public:
-        typedef std::vector<std::string> value_type;
+        using value_type = std::vector<std::string>;
 
         enum query_type {
             GENERAL = 0,
@@ -64,6 +64,22 @@ namespace irods {
         class query_impl_base
         {
         public:
+            query_impl_base(connection_type*   _comm,
+                            const uint32_t     _query_limit,
+                            const uint32_t     _row_offset,
+                            const std::string& _query_string)
+                : comm_{_comm}
+                , query_limit_{_query_limit}
+                , row_offset_{_row_offset}
+                , query_string_{_query_string}
+                , gen_output_{}
+            {
+            }
+
+            virtual ~query_impl_base() {
+                freeGenQueryOut(&this->gen_output_);
+            }
+
             size_t size() {
                 if(!gen_output_) {
                     return 0;
@@ -116,21 +132,8 @@ namespace irods {
             }
 
             virtual int fetch_page() = 0;
-            virtual void reset_for_page_boundary() = 0;
-            virtual ~query_impl_base() {
-            }
 
-            query_impl_base(connection_type*   _comm,
-                            const uint32_t     _query_limit,
-                            const uint32_t     _row_offset,
-                            const std::string& _query_string)
-                : comm_{_comm}
-                , query_limit_{_query_limit}
-                , row_offset_{_row_offset}
-                , query_string_{_query_string}
-                , gen_output_{}
-            {
-            }
+            virtual void reset_for_page_boundary() = 0;
 
         protected:
             connection_type* comm_;
@@ -143,41 +146,6 @@ namespace irods {
         class gen_query_impl : public query_impl_base
         {
         public:
-            virtual ~gen_query_impl() {
-                if(this->gen_output_ && this->gen_output_->continueInx) {
-                    rodsLog(LOG_NOTICE, "[%s] - continueInx is not 0", __FUNCTION__);
-                    // Close statements for this query
-                    gen_input_.continueInx = this->gen_output_->continueInx;
-                    freeGenQueryOut(&this->gen_output_);
-                    gen_input_.maxRows = 0;
-                    auto err = gen_query_fcn(
-                                   this->comm_,
-                                   &gen_input_,
-                                   &this->gen_output_);
-                    if (CAT_NO_ROWS_FOUND != err && err < 0) {
-                        irods::log(ERROR(err, (boost::format(
-                                    "[%s] - Failed to close statement with continueInx [%d]") %
-                                    __FUNCTION__ % gen_input_.continueInx).str()));
-                    }
-                }
-                freeGenQueryOut(&this->gen_output_);
-                clearGenQueryInp(&gen_input_);
-            }
-
-            void reset_for_page_boundary() override {
-                if(this->gen_output_) {
-                    gen_input_.continueInx = this->gen_output_->continueInx;
-                    freeGenQueryOut(&this->gen_output_);
-                }
-            }
-
-            int fetch_page() override {
-                return gen_query_fcn(
-                           this->comm_,
-                           &gen_input_,
-                           &this->gen_output_);
-            } // fetch_page
-
             gen_query_impl(connection_type*   _comm,
                            int                _query_limit,
                            int                _row_offset,
@@ -204,6 +172,41 @@ namespace irods {
                 }
             } // ctor
 
+            virtual ~gen_query_impl() {
+                if(this->gen_output_ && this->gen_output_->continueInx) {
+                    rodsLog(LOG_NOTICE, "[%s] - continueInx is not 0", __FUNCTION__);
+                    // Close statements for this query
+                    gen_input_.continueInx = this->gen_output_->continueInx;
+                    freeGenQueryOut(&this->gen_output_);
+                    gen_input_.maxRows = 0;
+                    auto err = gen_query_fcn(
+                                   this->comm_,
+                                   &gen_input_,
+                                   &this->gen_output_);
+                    if (CAT_NO_ROWS_FOUND != err && err < 0) {
+                        irods::log(ERROR(err, (boost::format(
+                                    "[%s] - Failed to close statement with continueInx [%d]") %
+                                    __FUNCTION__ % gen_input_.continueInx).str()));
+                    }
+                }
+
+                clearGenQueryInp(&gen_input_);
+            }
+
+            void reset_for_page_boundary() override {
+                if(this->gen_output_) {
+                    gen_input_.continueInx = this->gen_output_->continueInx;
+                    freeGenQueryOut(&this->gen_output_);
+                }
+            }
+
+            int fetch_page() override {
+                return gen_query_fcn(
+                           this->comm_,
+                           &gen_input_,
+                           &this->gen_output_);
+            } // fetch_page
+
         private:
             genQueryInp_t gen_input_;
 #ifdef IRODS_QUERY_ENABLE_SERVER_SIDE_API
@@ -219,45 +222,11 @@ namespace irods {
                     genQueryOut_t**)>
                         gen_query_fcn{rcGenQuery};
 #endif // IRODS_QUERY_ENABLE_SERVER_SIDE_API
-
         }; // class gen_query_impl
 
-        class spec_query_impl : public query_impl_base {
-            public:
-            virtual ~spec_query_impl() {
-                if(this->gen_output_ && this->gen_output_->continueInx) {
-                    // Close statement for this query
-                    spec_input_.continueInx = this->gen_output_->continueInx;
-                    freeGenQueryOut(&this->gen_output_);
-                    spec_input_.maxRows = 0;
-                    auto err = spec_query_fcn(
-                                   this->comm_,
-                                   &spec_input_,
-                                   &this->gen_output_);
-                    if (CAT_NO_ROWS_FOUND != err && err < 0) {
-                        irods::log(ERROR(
-                                    err, (boost::format(
-                                    "[%s] - Failed to close statement with continueInx [%d]") %
-                                    __FUNCTION__ % spec_input_.continueInx).str()));
-                    }
-                }
-                freeGenQueryOut(&this->gen_output_);
-            }
-
-            void reset_for_page_boundary() override {
-                if(this->gen_output_) {
-                    spec_input_.continueInx = this->gen_output_->continueInx;
-                    freeGenQueryOut(&this->gen_output_);
-                }
-            }
-
-            int fetch_page() override {
-                return spec_query_fcn(
-                           this->comm_,
-                           &spec_input_,
-                           &this->gen_output_);
-            } // fetch_page
-
+        class spec_query_impl : public query_impl_base
+        {
+        public:
             spec_query_impl(connection_type*                _comm,
                             int                             _query_limit,
                             int                             _row_offset,
@@ -279,19 +248,44 @@ namespace irods {
                         spec_input_.args[i] = const_cast<char*>((*_args)[i].data());
                     }
                 }
-
-                int spec_err = spec_query_fcn(
-                                   _comm,
-                                   &spec_input_,
-                                   &this->gen_output_);
-                if (spec_err < 0) {
-                    if (CAT_NO_ROWS_FOUND != spec_err) {
-                        THROW(spec_err, boost::format("query fill failed for [%s]") % _query_string);
-                    }
-                }
             } // ctor
 
-            private:
+            virtual ~spec_query_impl() {
+                if(this->gen_output_ && this->gen_output_->continueInx) {
+                    // Close statement for this query
+                    spec_input_.continueInx = this->gen_output_->continueInx;
+                    freeGenQueryOut(&this->gen_output_);
+                    spec_input_.maxRows = 0;
+                    auto err = spec_query_fcn(
+                                   this->comm_,
+                                   &spec_input_,
+                                   &this->gen_output_);
+                    if (CAT_NO_ROWS_FOUND != err && err < 0) {
+                        irods::log(ERROR(
+                                    err, (boost::format(
+                                    "[%s] - Failed to close statement with continueInx [%d]") %
+                                    __FUNCTION__ % spec_input_.continueInx).str()));
+                    }
+                }
+
+                clearKeyVal(&spec_input_.condInput);
+            }
+
+            void reset_for_page_boundary() override {
+                if(this->gen_output_) {
+                    spec_input_.continueInx = this->gen_output_->continueInx;
+                    freeGenQueryOut(&this->gen_output_);
+                }
+            }
+
+            int fetch_page() override {
+                return spec_query_fcn(
+                           this->comm_,
+                           &spec_input_,
+                           &this->gen_output_);
+            } // fetch_page
+
+        private:
             specificQueryInp_t spec_input_;
 #ifdef IRODS_QUERY_ENABLE_SERVER_SIDE_API
             const std::function<
@@ -486,24 +480,19 @@ namespace irods {
         query(query&&) = default;
         query& operator=(query&&) = default;
 
-        ~query() {
-        }
+        ~query() {}
 
-        iterator   begin() {
-            return *iter_;
-        }
+        iterator   begin() { return *iter_; }
 
-        iterator   end()   {
-            return iterator();
-        }
+        iterator   end()   { return iterator(); }
 
-        value_type front() {
-            return (*(*iter_));
-        }
+        value_type front() { return (*(*iter_)); }
 
-        size_t size()  {
-            return query_impl_->size();
-        }
+        value_type front() const { return (*(*iter_)); }
+
+        size_t size()  { return query_impl_->size(); }
+
+        size_t size() const { return query_impl_->size(); }
 
     private:
         std::unique_ptr<iterator>        iter_;

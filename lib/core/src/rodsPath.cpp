@@ -1,9 +1,3 @@
-/*** Copyright (c), The Regents of the University of California            ***
- *** For more information please refer to files in the COPYRIGHT directory ***/
-/* rodsPath - a number of string operations designed for secure string
- * copying.
- */
-
 #include "rodsPath.h"
 #include "miscUtil.h"
 #include "rcMisc.h"
@@ -31,6 +25,15 @@ parseRodsPathStr( const char *inPath, rodsEnv *myRodsEnv, char *outPath ) {
     int status;
     rodsPath_t rodsPath;
 
+    if ( inPath == NULL) {
+        rodsLog( LOG_ERROR,
+                 "parseRodsPathStr: NULL inPath input" );
+        return USER__NULL_INPUT_ERR;
+    } else if ( strnlen(inPath, MAX_NAME_LEN) >= MAX_NAME_LEN - 1) {
+        rodsLog( LOG_ERROR,
+                 "parseRodsPath: parsing error - path too long" );
+        return USER_PATH_EXCEEDS_MAX;
+    }
     rstrcpy( rodsPath.inPath, inPath, MAX_NAME_LEN );
 
     status = parseRodsPath( &rodsPath, myRodsEnv );
@@ -173,7 +176,9 @@ parseRodsPath( rodsPath_t *rodsPath, rodsEnv *myRodsEnv ) {
             *tmpPtr2 = '\0';
         }
         rodsPath->objType = COLL_OBJ_T;
-        if ( strlen( rodsPath->outPath ) >= MAX_PATH_ALLOWED - 1 ) {
+        if ( strnlen(rodsPath->outPath, MAX_PATH_ALLOWED) >= MAX_PATH_ALLOWED - 1) {
+            rodsLog( LOG_ERROR,
+                     "parseRodsPath: parsing error - path too long" );
             return USER_PATH_EXCEEDS_MAX;
         }
         return 0;
@@ -184,7 +189,9 @@ parseRodsPath( rodsPath_t *rodsPath, rodsEnv *myRodsEnv ) {
     if ( ( tmpPtr2 = strstr( tmpPtr1 - 2, "/." ) ) != NULL ) {
         *tmpPtr2 = '\0';
         rodsPath->objType = COLL_OBJ_T;
-        if ( strlen( rodsPath->outPath ) >= MAX_PATH_ALLOWED - 1 ) {
+        if ( strnlen(rodsPath->outPath, MAX_PATH_ALLOWED) >= MAX_PATH_ALLOWED - 1) {
+            rodsLog( LOG_ERROR,
+                     "parseRodsPath: parsing error - path too long" );
             return USER_PATH_EXCEEDS_MAX;
         }
         return 0;
@@ -193,12 +200,16 @@ parseRodsPath( rodsPath_t *rodsPath, rodsEnv *myRodsEnv ) {
     if ( *( tmpPtr1 - 1 ) == '/' && len > 1 ) {
         *( tmpPtr1 - 1 ) = '\0';
         rodsPath->objType = COLL_OBJ_T;
-        if ( strlen( rodsPath->outPath ) >= MAX_PATH_ALLOWED - 1 ) {
+        if ( strnlen(rodsPath->outPath, MAX_PATH_ALLOWED) >= MAX_PATH_ALLOWED - 1) {
+            rodsLog( LOG_ERROR,
+                     "parseRodsPath: parsing error - path too long" );
             return USER_PATH_EXCEEDS_MAX;
         }
         return 0;
     }
-    if ( strlen( rodsPath->outPath ) >= MAX_PATH_ALLOWED - 1 ) {
+    if ( strnlen(rodsPath->outPath, MAX_PATH_ALLOWED) >= MAX_PATH_ALLOWED - 1) {
+        rodsLog( LOG_ERROR,
+                 "parseRodsPath: parsing error - path too long" );
         return USER_PATH_EXCEEDS_MAX;
     }
     return 0;
@@ -560,7 +571,7 @@ int has_prefix(const char* path, const char* prefix)
     const fs::path parent = prefix;
     const fs::path child = path;
 
-    if (parent == child) {
+    if (parent.empty() || parent == child) {
         return false;
     }
 
@@ -568,6 +579,13 @@ int has_prefix(const char* path, const char* prefix)
     auto p_last = std::end(parent);
     auto c_iter = std::begin(child);
     auto c_last = std::end(child);
+
+    // Paths that end with a trailing slash will have an empty path element
+    // just before the end iterator. We ignore this empty path element by making
+    // the end iterator point to the empty path element.
+    if (auto tmp = std::prev(p_last); "" == *tmp) {
+        p_last = tmp;
+    }
 
     for (; p_iter != p_last && c_iter != c_last && *p_iter == *c_iter; ++p_iter, ++c_iter);
 

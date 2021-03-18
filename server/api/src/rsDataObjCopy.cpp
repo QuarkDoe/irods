@@ -24,6 +24,7 @@
 #include "rsDataObjClose.hpp"
 #include "server_utilities.hpp"
 #include "irods_logger.hpp"
+#include "scoped_privileged_client.hpp"
 
 #define IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
 #include "filesystem.hpp"
@@ -32,6 +33,10 @@
 #include "irods_resource_redirect.hpp"
 
 #include "boost/format.hpp"
+
+#include <chrono>
+
+namespace ix = irods::experimental;
 
 namespace {
 
@@ -86,16 +91,16 @@ int connect_to_remote_zone(
 
 int open_source_data_obj(
     rsComm_t *rsComm,
-    dataObjInp_t& _inp) {
-    _inp.oprType = COPY_SRC;
-    _inp.openFlags = O_RDONLY;
-    const int srcL1descInx = rsDataObjOpen(rsComm, &_inp);
+    dataObjInp_t& inp) {
+    inp.oprType = COPY_SRC;
+    inp.openFlags = O_RDONLY;
+    const int srcL1descInx = rsDataObjOpen(rsComm, &inp);
     if (srcL1descInx < 0) {
         char* sys_error{};
         const char* rods_error = rodsErrorName(srcL1descInx, &sys_error);
         const std::string error_msg = (boost::format(
             "%s -  - Failed to open source object: \"%s\" - %s %s") %
-            __FUNCTION__ % _inp.objPath % rods_error % sys_error).str();
+            __FUNCTION__ % inp.objPath % rods_error % sys_error).str();
         free(sys_error);
         THROW(srcL1descInx, error_msg);
     }
@@ -105,42 +110,68 @@ int open_source_data_obj(
     return srcL1descInx;
 } // open_source_data_obj
 
-void close_source_data_obj(
-    rsComm_t *rsComm,
-    const int _inx) {
-    openedDataObjInp_t dataObjCloseInp{};
-    dataObjCloseInp.l1descInx = _inx;
-    const int close_status = rsDataObjClose(rsComm, &dataObjCloseInp);
-    if (close_status < 0) {
-        rodsLog(LOG_NOTICE, "%s - failed closing [%s] with status [%d]",
-                __FUNCTION__,
-                __LINE__,
-                L1desc[_inx].dataObjInp->objPath,
-                close_status);
-    }
-} // close_source_data_obj
+    auto close_source_data_obj(RsComm* rsComm, const int _inx) -> int
+    {
+        openedDataObjInp_t dataObjCloseInp{};
+        dataObjCloseInp.l1descInx = _inx;
+
+        rodsLog(LOG_DEBUG8, "[%s:%d] - closing [%s]", __FUNCTION__, __LINE__, L1desc[_inx].dataObjInp->objPath);
+
+        return rsDataObjClose(rsComm, &dataObjCloseInp);
+    } // close_source_data_obj
 
 int open_destination_data_obj(
     rsComm_t *rsComm,
-    dataObjInp_t& _inp) {
-    _inp.oprType = COPY_DEST;
-    _inp.openFlags = O_CREAT | O_RDWR;
-    int destL1descInx = rsDataObjOpen(rsComm, &_inp);
+    dataObjInp_t& inp)
+{
+    inp.oprType = COPY_DEST;
+    inp.openFlags = O_CREAT | O_WRONLY | O_TRUNC;
+
+    irods::file_object_ptr file_obj(new irods::file_object());
+    std::string hier{};
+    const char* h{getValByKey(&inp.condInput, RESC_HIER_STR_KW)};
+    if (!h) {
+        std::tie(file_obj, hier) = irods::resolve_resource_hierarchy(irods::CREATE_OPERATION, rsComm, inp);
+        addKeyVal(&inp.condInput, RESC_HIER_STR_KW, hier.c_str());
+    }
+    else {
+        hier = h;
+        irods::file_object_ptr obj(new irods::file_object());
+        dataObjInfo_t* dataObjInfoHead{};
+        irods::error fac_err = irods::file_object_factory(rsComm, &inp, obj, &dataObjInfoHead);
+        if (!fac_err.ok()) {
+            irods::log(fac_err);
+        }
+        file_obj.swap(obj);
+    }
+
+    const auto hier_has_replica{[&hier, &replicas = file_obj->replicas()]() {
+        return std::any_of(replicas.begin(), replicas.end(),
+            [&](const irods::physical_object& replica) {
+                return replica.resc_hier() == hier;
+            });
+        }()};
+
+    if (hier_has_replica && !getValByKey(&inp.condInput, FORCE_FLAG_KW)) {
+        THROW(OVERWRITE_WITHOUT_FORCE_FLAG, "force flag required to overwrite data object for copy");
+    }
+
+    int destL1descInx = rsDataObjOpen(rsComm, &inp);
     if ( destL1descInx == CAT_UNKNOWN_COLLECTION ) {
         /* collection does not exist. make one */
         char parColl[MAX_NAME_LEN], child[MAX_NAME_LEN];
-        splitPathByKey(_inp.objPath, parColl, MAX_NAME_LEN, child, MAX_NAME_LEN, '/');
+        splitPathByKey(inp.objPath, parColl, MAX_NAME_LEN, child, MAX_NAME_LEN, '/');
         rsMkCollR( rsComm, "/", parColl );
-        destL1descInx = rsDataObjOpen(rsComm, &_inp);
+        destL1descInx = rsDataObjOpen(rsComm, &inp);
     }
 
     if (destL1descInx < 0) {
-        clearKeyVal( &_inp.condInput );
+        clearKeyVal( &inp.condInput );
         char* sys_error = NULL;
         const char* rods_error = rodsErrorName( destL1descInx, &sys_error );
         const std::string error_msg = (boost::format(
             "%s -  - Failed to create destination object: \"%s\" - %s %s") %
-            __FUNCTION__ % _inp.objPath % rods_error % sys_error).str();
+            __FUNCTION__ % inp.objPath % rods_error % sys_error).str();
         free(sys_error);
         THROW(destL1descInx, error_msg);
     }
@@ -149,37 +180,21 @@ int open_destination_data_obj(
     return destL1descInx;
 } // open_destination_data_obj
 
-void close_destination_data_obj(
-    rsComm_t *rsComm,
-    const int _inx,
-    transferStat_t **transStat)
-{
-    openedDataObjInp_t dataObjCloseInp{};
-    dataObjCloseInp.l1descInx = _inx;
+    auto close_destination_data_obj(RsComm* rsComm, const int _inx) -> int
+    {
+        openedDataObjInp_t dataObjCloseInp{};
+        dataObjCloseInp.l1descInx = _inx;
+        dataObjCloseInp.bytesWritten = L1desc[_inx].dataSize;
 
-    *transStat = (transferStat_t*)malloc(sizeof(transferStat_t));
-    memset(*transStat, 0, sizeof(transferStat_t));
-    const int srcL1descInx = L1desc[_inx].srcL1descInx;
-    (*transStat)->bytesWritten = L1desc[srcL1descInx].dataObjInfo->dataSize;
-    (*transStat)->numThreads = L1desc[_inx].dataObjInp->numThreads;
-    dataObjCloseInp.bytesWritten = L1desc[srcL1descInx].dataObjInfo->dataSize;
-    rodsLog(LOG_DEBUG, "[%s:%d] - closing [%s]", __FUNCTION__, __LINE__, L1desc[_inx].dataObjInp->objPath);
-    const int close_status = rsDataObjClose(rsComm, &dataObjCloseInp);
-    if (close_status < 0) {
-        rodsLog(LOG_NOTICE, "%s - failed closing [%s] with status [%d]",
-                __FUNCTION__,
-                __LINE__,
-                L1desc[_inx].dataObjInp->objPath,
-                close_status);
-    }
-} // close_destination_data_obj
+        rodsLog(LOG_DEBUG8, "[%s:%d] - closing [%s]", __FUNCTION__, __LINE__, L1desc[_inx].dataObjInp->objPath);
 
-} // anonymous namespace
+        return rsDataObjClose(rsComm, &dataObjCloseInp);
+    } // close_destination_data_obj
 
-int rsDataObjCopy(
+int rsDataObjCopy_impl(
     rsComm_t *rsComm,
     dataObjCopyInp_t *dataObjCopyInp,
-    transferStat_t **transStat )
+    transferStat_t **transStat)
 {
     namespace fs = irods::experimental::filesystem;
 
@@ -229,10 +244,27 @@ int rsDataObjCopy(
         int destL1descInx{};
         const irods::at_scope_exit close_objects{[&]() {
             if (destL1descInx > 3) {
-                close_destination_data_obj(rsComm, destL1descInx, transStat);
+                // The transferStat_t communicates information back to the client regarding
+                // the data transfer such as bytes written and how many threads were used.
+                // These must be saved before the L1 descriptor is free'd.
+                *transStat = (transferStat_t*)malloc(sizeof(transferStat_t));
+                memset(*transStat, 0, sizeof(transferStat_t));
+                (*transStat)->bytesWritten = L1desc[destL1descInx].dataSize;
+                (*transStat)->numThreads = L1desc[destL1descInx].dataObjInp->numThreads;
+
+                if (const int ec = close_destination_data_obj(rsComm, destL1descInx); ec < 0) {
+                    irods::log(LOG_ERROR, fmt::format(
+                        "[{}:{}] - failed closing [{}] with status [{}]",
+                        __FUNCTION__, __LINE__, destDataObjInp->objPath, ec));
+                }
             }
+
             if (srcL1descInx > 3) {
-                close_source_data_obj(rsComm, srcL1descInx);
+                if (const int ec = close_source_data_obj(rsComm, srcL1descInx); ec < 0) {
+                    irods::log(LOG_ERROR, fmt::format(
+                        "[{}:{}] - failed closing [{}] with status [{}]",
+                        __FUNCTION__, __LINE__, srcDataObjInp->objPath, ec));
+                }
             }
         }};
 
@@ -256,6 +288,7 @@ int rsDataObjCopy(
             L1desc[destL1descInx].dataObjInfo->rescHier,
             L1desc[srcL1descInx].dataObjInfo->rescHier,
             0);
+        L1desc[destL1descInx].dataObjInp->numThreads = thread_count;
         L1desc[srcL1descInx].dataObjInp->numThreads = thread_count;
 
         const int status = dataObjCopy( rsComm, destL1descInx );
@@ -270,3 +303,35 @@ int rsDataObjCopy(
     }
     return 0;
 } // rsDataObjCopy
+
+} // anonymous namespace
+
+int rsDataObjCopy(rsComm_t* rsComm,
+                  dataObjCopyInp_t* dataObjCopyInp,
+                  transferStat_t** transStat)
+{
+    namespace fs = ix::filesystem;
+
+    const auto ec = rsDataObjCopy_impl(rsComm, dataObjCopyInp, transStat);
+    const auto parent_path = fs::path{dataObjCopyInp->destDataObjInp.objPath}.parent_path();
+
+    // Update the parent collection's mtime.
+    if (ec == 0 && fs::server::is_collection_registered(*rsComm, parent_path)) {
+        using std::chrono::system_clock;
+        using std::chrono::time_point_cast;
+
+        const auto mtime = time_point_cast<fs::object_time_type::duration>(system_clock::now());
+
+        try {
+            ix::scoped_privileged_client spc{*rsComm};
+            fs::server::last_write_time(*rsComm, parent_path, mtime);
+        }
+        catch (const fs::filesystem_error& e) {
+            ix::log::api::error(e.what());
+            return e.code().value();
+        }
+    }
+
+    return ec;
+}
+

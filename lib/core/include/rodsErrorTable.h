@@ -1,15 +1,3 @@
-/*** Copyright (c), The Regents of the University of California            ***
- *** For more information please refer to files in the COPYRIGHT directory ***/
-
-/* rodsErrorTable.h - common header file for rods server and agents
- */
-
-/**
- * @file  rodsErrorTable.h
- *
- * @brief Defines ERRORS for iRODS server and agents
- */
-
 #ifndef RODS_ERROR_TABLE_H__
 #define RODS_ERROR_TABLE_H__
 
@@ -244,6 +232,12 @@ NEW_ERROR(SYS_OPERATION_IN_PROGRESS,                   -163000)
 NEW_ERROR(SYS_REPLICA_DOES_NOT_EXIST,                  -164000)
 NEW_ERROR(SYS_UNKNOWN_ERROR,                           -165000)
 NEW_ERROR(SYS_NO_GOOD_REPLICA,                         -166000)
+NEW_ERROR(SYS_LIBRARY_ERROR,                           -167000)
+NEW_ERROR(SYS_REPLICA_INACCESSIBLE,                    -168000)
+NEW_ERROR(SYS_NOT_ALLOWED,                             -169000)
+NEW_ERROR(NOT_A_COLLECTION,                            -170000)
+NEW_ERROR(NOT_A_DATA_OBJECT,                           -171000)
+
 /** @} */
 
 /* 300,000 - 499,000 - user input type error */
@@ -490,6 +484,7 @@ NEW_ERROR(CAT_INVALID_OBJ_COUNT,                       -858000) // hcj
 NEW_ERROR(CAT_INVALID_RESOURCE_NAME,                   -859000) // JMC
 NEW_ERROR(CAT_STATEMENT_TABLE_FULL,                    -860000) // JMC
 NEW_ERROR(CAT_RESOURCE_NAME_LENGTH_EXCEEDED,           -861000)
+NEW_ERROR(CAT_NO_CHECKSUM_FOR_REPLICA,                 -862000)
 /** @} */
 
 /* 880,000 to 889,000  Deprecated  */

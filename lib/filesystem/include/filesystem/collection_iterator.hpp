@@ -6,7 +6,9 @@
 #include "filesystem/collection_entry.hpp"
 #include "filesystem/path.hpp"
 
-#include "rcConnect.h"
+#ifndef IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
+    #include "miscUtil.h"
+#endif // IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
 
 #include <iterator>
 #include <memory>
@@ -71,9 +73,15 @@ namespace irods::experimental::filesystem::NAMESPACE_IMPL
         {
             rxComm* comm{};
             path path{};
+#ifdef IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
             int handle{};
+#else
+            collHandle_t handle{};
+#endif // IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
             value_type entry{};
         };
+
+        auto close() -> void;
 
         std::shared_ptr<context> ctx_;
     };

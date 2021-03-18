@@ -92,7 +92,7 @@ def setup_server(irods_config, json_configuration_file=None, test_mode=False):
     setup_service_account(irods_config, irods_user, irods_group)
     setup_rsyslog_and_logrotate(register_tty=False)
 
-    #Do the rest of the setup as the irods user
+    # Do the rest of the setup as the irods user
     if os.getuid() == 0:
         irods.lib.switch_user(irods_config.irods_user, irods_config.irods_group)
 
@@ -142,7 +142,10 @@ def setup_server(irods_config, json_configuration_file=None, test_mode=False):
             'iRODS will never touch these configuration files again.\n'
             'If you need to make adjustments, you must do so manually.'))
 
-    l.info(irods.lib.get_header('iRODS is installed and running'))
+    l.info(irods.lib.get_header('Stopping iRODS...'))
+    IrodsController(irods_config).stop()
+
+    l.info(irods.lib.get_header('iRODS is configured and ready to be started'))
 
 def test_put(irods_config):
     l = logging.getLogger(__name__)
@@ -151,7 +154,7 @@ def test_put(irods_config):
     if 0 != irods.lib.execute_command_permissive(irods.paths.test_put_get_executable())[2]:
         raise IrodsError('Post-install test failed. Please check your configuration.')
 
-    l.info('Success.')
+    l.info('Success')
 
 def check_hostname():
     l = logging.getLogger(__name__)
@@ -419,20 +422,24 @@ def main():
     irods_config = IrodsConfig()
 
     irods.log.register_file_handler(irods_config.setup_log_path)
-    if options.verbose:
-        irods.log.register_tty_handler(sys.stdout, logging.INFO, logging.WARNING)
+    if options.verbose > 0:
+        llevel = logging.NOTSET
+        if options.verbose == 1:
+            llevel = logging.INFO
+        elif options.verbose == 2:
+            llevel = logging.DEBUG
+        irods.log.register_tty_handler(sys.stdout, llevel, logging.WARNING)
 
     if options.server_log_level != None:
-        irods_config.injected_environment['spLogLevel'] = options.server_log_level
+        irods_config.injected_environment['spLogLevel'] = str(options.server_log_level)
     if options.sql_log_level != None:
-        irods_config.injected_environment['spLogSql'] = options.sql_log_level
+        irods_config.injected_environment['spLogSql'] = str(options.sql_log_level)
     if options.days_per_log != None:
-        irods_config.injected_environment['logfileInt'] = options.days_per_log
+        irods_config.injected_environment['logfileInt'] = str(options.days_per_log)
     if options.rule_engine_server_options != None:
         irods_config.injected_environment['reServerOption'] = options.rule_engine_server_options
     if options.server_reconnect_flag:
         irods_config.injected_environment['irodsReconnect'] = ''
-
 
     try:
         setup_server(irods_config,
