@@ -1,862 +1,1104 @@
+#include "apiNumber.h"
+#include "dataObjClose.h"
+#include "dataObjCreate.h"
+#include "dataObjCreateAndStat.h"
 #include "dataObjInpOut.h"
+#include "dataObjLock.h"
 #include "dataObjOpen.h"
 #include "dataObjOpenAndStat.h"
+#include "dataObjOpr.hpp"
+#include "dataObjRepl.h"
+#include "dataObjUnlink.h"
+#include "fileCreate.h"
+#include "fileOpen.h"
+#include "getRemoteZoneResc.h"
+#include "getRescQuota.h"
+#include "icatHighLevelRoutines.hpp"
 #include "irods_exception.hpp"
 #include "irods_get_l1desc.hpp"
 #include "irods_linked_list_iterator.hpp"
 #include "irods_resource_types.hpp"
 #include "objInfo.h"
+#include "objMetaOpr.hpp"
+#include "physPath.hpp"
+#include "rcGlobalExtern.h"
+#include "rcMisc.h"
+#include "regDataObj.h"
+#include "regReplica.h"
+#include "resource.hpp"
 #include "rodsErrorTable.h"
 #include "rodsLog.h"
-#include "objMetaOpr.hpp"
-#include "resource.hpp"
-#include "dataObjOpr.hpp"
-#include "physPath.hpp"
-#include "dataObjCreate.h"
-#include "dataObjLock.h"
-#include "rsDataObjOpen.hpp"
-#include "apiNumber.h"
-#include "rsDataObjCreate.hpp"
-#include "rsModDataObjMeta.hpp"
-#include "rsSubStructFileOpen.hpp"
-#include "rsFileOpen.hpp"
-#include "rsDataObjRepl.hpp"
-#include "rsRegReplica.hpp"
 #include "rsDataObjClose.hpp"
-#include "rsPhyPathReg.hpp"
-
-#include "fileOpen.h"
-#include "subStructFileOpen.h"
-#include "rsGlobalExtern.hpp"
-#include "rcGlobalExtern.h"
-#include "getRemoteZoneResc.h"
-#include "regReplica.h"
-#include "regDataObj.h"
-#include "dataObjClose.h"
-#include "dataObjRepl.h"
-#include "rcMisc.h"
-
-#include "dataObjCreateAndStat.h"
-#include "fileCreate.h"
-#include "subStructFileCreate.h"
-#include "specColl.hpp"
-#include "dataObjUnlink.h"
-#include "regDataObj.h"
-#include "rcGlobalExtern.h"
-#include "getRemoteZoneResc.h"
-#include "getRescQuota.h"
-#include "icatHighLevelRoutines.hpp"
-#include "rsObjStat.hpp"
-#include "rsRegDataObj.hpp"
+#include "rsDataObjCreate.hpp"
+#include "rsDataObjOpen.hpp"
+#include "rsDataObjRepl.hpp"
 #include "rsDataObjUnlink.hpp"
-#include "rsSubStructFileCreate.hpp"
 #include "rsFileCreate.hpp"
+#include "rsFileOpen.hpp"
 #include "rsGetRescQuota.hpp"
-#include "rsUnregDataObj.hpp"
+#include "rsGlobalExtern.hpp"
 #include "rsModDataObjMeta.hpp"
+#include "rsObjStat.hpp"
+#include "rsPhyPathReg.hpp"
+#include "rsRegDataObj.hpp"
+#include "rsRegReplica.hpp"
+#include "rsSubStructFileCreate.hpp"
+#include "rsSubStructFileOpen.hpp"
+#include "rsUnregDataObj.hpp"
+#include "specColl.hpp"
+#include "subStructFileCreate.h"
+#include "subStructFileOpen.h"
 
 // =-=-=-=-=-=-=-
+#include "finalize_utilities.hpp"
+#include "irods_at_scope_exit.hpp"
+#include "irods_hierarchy_parser.hpp"
+#include "irods_log.hpp"
 #include "irods_resource_backport.hpp"
 #include "irods_resource_redirect.hpp"
-#include "irods_hierarchy_parser.hpp"
-#include "irods_stacktrace.hpp"
-#include "irods_server_properties.hpp"
 #include "irods_server_api_call.hpp"
-#include "irods_at_scope_exit.hpp"
+#include "irods_server_properties.hpp"
+#include "irods_stacktrace.hpp"
 #include "key_value_proxy.hpp"
 #include "replica_access_table.hpp"
-
-#define IRODS_QUERY_ENABLE_SERVER_SIDE_API
-#include "irods_query.hpp"
-
-#include "boost/format.hpp"
-
-#include <stdexcept>
+#include "replica_state_table.hpp"
+#include "scoped_privileged_client.hpp"
 
 #define IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
 #include "filesystem.hpp"
 
+#define IRODS_QUERY_ENABLE_SERVER_SIDE_API
+#include "irods_query.hpp"
+
+#define IRODS_REPLICA_ENABLE_SERVER_SIDE_API
+#include "data_object_proxy.hpp"
+
 #include <fmt/format.h>
+
+#include <chrono>
+#include <stdexcept>
 
 #include <sys/types.h>
 #include <unistd.h>
 
-namespace ix = irods::experimental;
-
-namespace {
-
-// Instructs how "update_replica_access_table" should update the
-// replica access table.
-enum class update_operation
+namespace
 {
-    create,
-    update
-};
+    // clang-format off
+    namespace ix            = irods::experimental;
+    namespace fs            = irods::experimental::filesystem;
+    namespace data_object   = irods::experimental::data_object;
+    namespace replica       = irods::experimental::replica;
+    namespace rat           = irods::experimental::replica_access_table;
+    namespace rst           = irods::replica_state_table;
 
-void update_replica_access_table(rsComm_t& _conn,
-                                 update_operation _op,
-                                 int _l1desc_index,
-                                 const dataObjInp_t& _input)
-{
-    const irods::experimental::filesystem::path p = _input.objPath;
-    const ix::key_value_proxy kvp{_input.condInput};
+    using replica_proxy     = irods::experimental::replica::replica_proxy<DataObjInfo>;
+    using data_object_proxy = irods::experimental::data_object::data_object_proxy<DataObjInfo>;
+    // clang-format on
 
-    ix::replica_access_table::data_id_type data_id;
-    ix::replica_access_table::replica_number_type replica_number;
-
-    try {
-        const auto gql = fmt::format("select DATA_ID, DATA_REPL_NUM "
-                                     "where"
-                                     " COLL_NAME = '{}' and"
-                                     " DATA_NAME = '{}' and"
-                                     " DATA_RESC_HIER = '{}'",
-                                     p.parent_path().c_str(),
-                                     p.object_name().c_str(),
-                                     kvp[RESC_HIER_STR_KW].value());
-
-        for (auto&& row : irods::query{&_conn, gql}) {
-            data_id = std::stoull(row[0]);
-            replica_number = std::stoul(row[1]);
-        }
-    }
-    catch (const std::out_of_range&) {
-        THROW(SYS_INTERNAL_ERR, "Could not convert string to integer");
-    }
-
-    auto& rat = irods::experimental::replica_access_table::instance();
-    auto& l1desc = L1desc[_l1desc_index];
-
-    try {
-        if (update_operation::create == _op) {
-            l1desc.replica_token = rat.create_new_entry(data_id, replica_number, getpid());
-        }
-        else {
-            auto token = kvp[REPLICA_TOKEN_KW].value();
-            rat.append_pid(token.data(), data_id, replica_number, getpid());
-            l1desc.replica_token = token;
-        }
-    }
-    catch (const ix::replica_access_table_error& e) {
-        rodsLog(LOG_ERROR, e.what());
-        THROW(SYS_INTERNAL_ERR, e.what());
-    }
-}
-
-void enable_creation_of_additional_replicas(rsComm_t& _comm)
-{
-    // rxDataObjOpen has the freedom to create replicas on demand. To enable this,
-    // it must always set the following flag. This special flag instructs rsPhyPathReg
-    // to register a new replica if an existing replica already exists.
-    ix::key_value_proxy{_comm.session_props}[REG_REPL_KW] = "";
-}
-
-int register_intermediate_replica(
-    rsComm_t* _comm,
-    dataObjInp_t* _inp,
-    const char* _path) {
-    if (!getValByKey(&_inp->condInput, REGISTER_AS_INTERMEDIATE_KW)) {
-        addKeyVal(&_inp->condInput, REGISTER_AS_INTERMEDIATE_KW, "");
-    }
-    addKeyVal(&_inp->condInput, FILE_PATH_KW, _path);
-    addKeyVal(&_inp->condInput, DATA_SIZE_KW, "0");
-    return rsPhyPathReg(_comm, _inp);
-}
-
-int l3CreateByObjInfo(
-    rsComm_t* rsComm,
-    dataObjInp_t* dataObjInp,
-    dataObjInfo_t* dataObjInfo ) {
-
-    int chkType = getchkPathPerm( rsComm, dataObjInp, dataObjInfo );
-    if ( chkType == DISALLOW_PATH_REG ) {
-        return PATH_REG_NOT_ALLOWED;
-    }
-
-    fileCreateInp_t fileCreateInp{};
-    rstrcpy(fileCreateInp.resc_name_,    dataObjInfo->rescName, MAX_NAME_LEN);
-    rstrcpy(fileCreateInp.resc_hier_,    dataObjInfo->rescHier, MAX_NAME_LEN);
-    rstrcpy(fileCreateInp.objPath,       dataObjInfo->objPath,  MAX_NAME_LEN);
-    rstrcpy(fileCreateInp.fileName,      dataObjInfo->filePath, MAX_NAME_LEN);
-    rstrcpy(fileCreateInp.in_pdmo,       dataObjInfo->in_pdmo,  MAX_NAME_LEN );
-    fileCreateInp.mode = getFileMode(dataObjInp);
-    copyKeyVal(&dataObjInfo->condInput, &fileCreateInp.condInput);
-
-    if ( chkType == NO_CHK_PATH_PERM ) {
-        fileCreateInp.otherFlags |= NO_CHK_PERM_FLAG;
-    }
-
-    //loop until we find a valid filename
-    int retryCnt = 0;
-    int l3descInx;
-    do {
-        fileCreateOut_t* create_out{};
-        l3descInx = rsFileCreate(rsComm, &fileCreateInp, &create_out);
-
-        // update the dataObjInfo with the potential changes made by the resource - hcj
-        if (create_out) {
-            rstrcpy(dataObjInfo->rescHier, fileCreateInp.resc_hier_, MAX_NAME_LEN);
-            rstrcpy(dataObjInfo->filePath, create_out->file_name, MAX_NAME_LEN);
-            free(create_out);
-        }
-
-        //update the filename in case of a retry
-        rstrcpy(fileCreateInp.fileName, dataObjInfo->filePath, MAX_NAME_LEN);
-        retryCnt++;
-    }
-    while ( l3descInx < 0 && getErrno( l3descInx ) == EEXIST &&
-            resolveDupFilePath( rsComm, dataObjInfo, dataObjInp ) >= 0 &&
-            l3descInx <= 2 && retryCnt < 100 );
-    clearKeyVal( &fileCreateInp.condInput );
-    return l3descInx;
-}
-
-int create_sub_struct_file(
-    rsComm_t *rsComm,
-    const int l1descInx) {
-    dataObjInfo_t *dataObjInfo = L1desc[l1descInx].dataObjInfo;
-    std::string location{};
-    irods::error ret = irods::get_loc_for_hier_string( dataObjInfo->rescHier, location );
-    if (!ret.ok()) {
-        irods::log(PASSMSG((boost::format("%s - failed in get_loc_for_hier_string") %
-            __FUNCTION__).str(), ret));
-        return ret.code();
-    }
-
-    subFile_t subFile{};
-    rstrcpy( subFile.subFilePath, dataObjInfo->subPath, MAX_NAME_LEN );
-    rstrcpy( subFile.addr.hostAddr, location.c_str(), NAME_LEN );
-
-    subFile.specColl = dataObjInfo->specColl;
-    subFile.mode = getFileMode( L1desc[l1descInx].dataObjInp );
-    return rsSubStructFileCreate( rsComm, &subFile );
-}
-
-int l3Create(
-    rsComm_t *rsComm,
-    const int l1descInx) {
-    dataObjInfo_t *dataObjInfo = L1desc[l1descInx].dataObjInfo;
-    if (getStructFileType(dataObjInfo->specColl) >= 0) {
-        return create_sub_struct_file(rsComm, l1descInx);    
-    }
-    /* normal or mounted file */
-    return l3CreateByObjInfo(rsComm, L1desc[l1descInx].dataObjInp, L1desc[l1descInx].dataObjInfo);
-}
-
-int specCollSubCreate(
-    rsComm_t* rsComm,
-    dataObjInp_t& dataObjInp) {
-    dataObjInfo_t* dataObjInfo{};
-    int status = resolvePathInSpecColl( rsComm, dataObjInp.objPath,
-                                    WRITE_COLL_PERM, 0, &dataObjInfo );
-    if (!dataObjInfo) {
-        rodsLog(LOG_ERROR,
-                "%s :: dataObjInfo is null",
-                __FUNCTION__ );
-        return status;
-    }
-    if (status >= 0) {
-        rodsLog(LOG_ERROR,
-                "%s: phyPath %s already exist",
-                __FUNCTION__, dataObjInfo->filePath );
-        freeDataObjInfo( dataObjInfo );
-        return SYS_COPY_ALREADY_IN_RESC;
-    }
-    else if (status != SYS_SPEC_COLL_OBJ_NOT_EXIST) {
-        freeDataObjInfo( dataObjInfo );
-        return status;
-    }
-
-    int l1descInx = allocL1desc();
-    if (l1descInx < 0) {
-        return l1descInx;
-    }
-
-    dataObjInfo->replStatus = INTERMEDIATE_REPLICA;
-    fillL1desc(l1descInx, &dataObjInp, dataObjInfo, dataObjInfo->replStatus, dataObjInp.dataSize);
-
-    status = l3Create( rsComm, l1descInx );
-    if ( status <= 0 ) {
-        rodsLog( LOG_NOTICE,
-                 "%s: l3Create of %s failed, status = %d",
-                 __FUNCTION__, L1desc[l1descInx].dataObjInfo->filePath, status);
-        freeL1desc(l1descInx);
-        return status;
-    }
-    L1desc[l1descInx].l3descInx = status;
-    return l1descInx;
-}
-
-int create_data_obj(
-    rsComm_t* rsComm,
-    dataObjInp_t& dataObjInp)
-{
-    rodsObjStat_t* rodsObjStatOut{};
-    const irods::at_scope_exit free_obj_stat_out{
-        [&rodsObjStatOut]() {
-            freeRodsObjStat(rodsObjStatOut);
-        }
+    // Instructs how "update_replica_access_table" should update the
+    // replica access table.
+    enum class update_operation
+    {
+        create,
+        update
     };
 
-    addKeyVal(&dataObjInp.condInput, SEL_OBJ_TYPE_KW, "dataObj" );
-    int status = rsObjStat( rsComm, &dataObjInp, &rodsObjStatOut );
-    if (status < 0) {
-        rodsLog(LOG_DEBUG, "[%s:%d] - rsObjStat failed with [%d]", __FUNCTION__, __LINE__, status);
-    }
+    void update_replica_access_table(rsComm_t& _conn,
+                                     update_operation _op,
+                                     int _l1desc_index,
+                                     const dataObjInp_t& _input)
+    {
+        const ix::filesystem::path p = _input.objPath;
+        const ix::key_value_proxy kvp{_input.condInput};
 
-    if (rodsObjStatOut) {
-        if (COLL_OBJ_T == rodsObjStatOut->objType) {
-            return USER_INPUT_PATH_ERR;
+        rat::data_id_type data_id;
+        rat::replica_number_type replica_number;
+
+        try {
+            const auto gql = fmt::format("select DATA_ID, DATA_REPL_NUM "
+                                         "where"
+                                         " COLL_NAME = '{}' and"
+                                         " DATA_NAME = '{}' and"
+                                         " DATA_RESC_HIER = '{}'",
+                                         p.parent_path().c_str(),
+                                         p.object_name().c_str(),
+                                         kvp.at(RESC_HIER_STR_KW).value());
+
+            for (auto&& row : irods::query{&_conn, gql}) {
+                data_id = std::stoull(row[0]);
+                replica_number = std::stoul(row[1]);
+            }
+        }
+        catch (const std::out_of_range&) {
+            THROW(SYS_INTERNAL_ERR, "Could not convert string to integer");
         }
 
-        if (rodsObjStatOut->specColl) {
-            // Linked collection should have been translated by this point
-            if (LINKED_COLL == rodsObjStatOut->specColl->collClass) {
-                return SYS_COLL_LINK_PATH_ERR;
+        auto& l1desc = L1desc[_l1desc_index];
+
+        try {
+            if (update_operation::create == _op) {
+                l1desc.replica_token = rat::create_new_entry(data_id, replica_number, getpid());
+            }
+            else {
+                auto token = kvp.at(REPLICA_TOKEN_KW).value();
+                rat::append_pid(token.data(), data_id, replica_number, getpid());
+                l1desc.replica_token = token;
+            }
+        }
+        catch (const rat::replica_access_table_error& e) {
+            rodsLog(LOG_ERROR, e.what());
+            THROW(SYS_INTERNAL_ERR, e.what());
+        }
+    } // update_replica_access_table
+
+    int change_replica_status(rsComm_t& rsComm, dataObjInp_t& dataObjInp, int new_replica_status)
+    {
+        {
+            const auto l = {GOOD_REPLICA, INTERMEDIATE_REPLICA, STALE_REPLICA};
+            if (std::none_of(std::begin(l), std::end(l), [x = new_replica_status](auto y) { return x == y; })) {
+                return SYS_INVALID_INPUT_PARAM;
+            }
+        }
+
+        const irods::experimental::key_value_proxy src{dataObjInp.condInput};
+        auto resc_hier = src.at(RESC_HIER_STR_KW).value();
+
+        dataObjInfo_t info{};
+        rstrcpy(info.objPath, dataObjInp.objPath, MAX_NAME_LEN);
+        rstrcpy(info.rescHier, resc_hier.data(), MAX_NAME_LEN);
+
+        auto [dst, dst_lm] = irods::experimental::make_key_value_proxy({{REPL_STATUS_KW, std::to_string(new_replica_status)}});
+        if (src.contains(ADMIN_KW)) {
+            dst[ADMIN_KW] = "";
+        }
+
+        modDataObjMeta_t inp{};
+        inp.dataObjInfo = &info;
+        inp.regParam = dst.get();
+
+        return rsModDataObjMeta(&rsComm, &inp);
+    } // change_replica_status
+
+    void enable_creation_of_additional_replicas(rsComm_t& _comm)
+    {
+        // rxDataObjOpen has the freedom to create replicas on demand. To enable this,
+        // it must always set the following flag. This special flag instructs rsPhyPathReg
+        // to register a new replica if an existing replica already exists.
+        ix::key_value_proxy{_comm.session_props}[REG_REPL_KW] = "";
+    } // enable_creation_of_additional_replicas
+
+    auto populate_L1desc_with_inp(DataObjInp& _inp, replica_proxy& _replica, const rodsLong_t dataSize) -> int
+    {
+        int l1_index = allocL1desc();
+        if (l1_index < 0) {
+            THROW(l1_index, fmt::format("[{}] - failed to allocate l1 descriptor", __FUNCTION__));
+        }
+
+        auto& l1desc = L1desc[l1_index];
+
+        // Initialize the bytesWritten to -1 rather than 0.  If this is negative then we
+        // know no bytes have been written.  This is so that zero length files can be handled
+        // similarly to non-zero length files.
+        l1desc.bytesWritten = -1;
+
+        irods::experimental::key_value_proxy cond_input{_inp.condInput};
+
+        if (cond_input.contains(IN_PDMO_KW)) {
+            rstrcpy(l1desc.in_pdmo, cond_input.at(IN_PDMO_KW).value().data(), MAX_NAME_LEN );
+        }
+        else {
+            rstrcpy(l1desc.in_pdmo, "", MAX_NAME_LEN );
+        }
+
+        if (cond_input.contains(OPEN_TYPE_KW)) {
+            l1desc.openType = std::stoi(cond_input.at(OPEN_TYPE_KW).value().data());
+        }
+
+        l1desc.dataObjInp = static_cast<DataObjInp*>(std::malloc(sizeof(DataObjInp)));
+        std::memset(l1desc.dataObjInp, 0, sizeof(DataObjInp));
+        replDataObjInp(&_inp, l1desc.dataObjInp);
+
+        l1desc.dataObjInpReplFlag = 1;
+        l1desc.dataObjInfo = _replica.get();
+        l1desc.oprType = _inp.oprType;
+        l1desc.replStatus = _replica.replica_status();
+        l1desc.dataSize = dataSize;
+        l1desc.purgeCacheFlag = static_cast<int>(cond_input.contains(PURGE_CACHE_KW));
+
+        if (cond_input.contains(REG_CHKSUM_KW)) {
+            l1desc.chksumFlag = REG_CHKSUM;
+            std::snprintf(l1desc.chksum, sizeof(l1desc.chksum), "%s", cond_input.at(REG_CHKSUM_KW).value().data());
+        }
+        else if (cond_input.contains(VERIFY_CHKSUM_KW)) {
+            l1desc.chksumFlag = VERIFY_CHKSUM;
+            std::snprintf(l1desc.chksum, sizeof(l1desc.chksum), "%s", cond_input.at(VERIFY_CHKSUM_KW).value().data());
+        }
+
+        if (cond_input.contains(KEY_VALUE_PASSTHROUGH_KW)) {
+            _replica.cond_input()[KEY_VALUE_PASSTHROUGH_KW] = cond_input.at(KEY_VALUE_PASSTHROUGH_KW);
+        }
+
+        return l1_index;
+    } // populate_L1desc_with_inp
+
+    int close_replica(rsComm_t& conn, int l1desc_index)
+    {
+        openedDataObjInp_t input{};
+        input.l1descInx = l1desc_index;
+        return rsDataObjClose(&conn, &input);
+    } // close_replica
+
+    int l3CreateByObjInfo(
+        rsComm_t* rsComm,
+        dataObjInp_t* dataObjInp,
+        dataObjInfo_t* dataObjInfo ) {
+
+        int chkType = getchkPathPerm( rsComm, dataObjInp, dataObjInfo );
+        if ( chkType == DISALLOW_PATH_REG ) {
+            return PATH_REG_NOT_ALLOWED;
+        }
+
+        fileCreateInp_t fileCreateInp{};
+        rstrcpy(fileCreateInp.resc_name_,    dataObjInfo->rescName, MAX_NAME_LEN);
+        rstrcpy(fileCreateInp.resc_hier_,    dataObjInfo->rescHier, MAX_NAME_LEN);
+        rstrcpy(fileCreateInp.objPath,       dataObjInfo->objPath,  MAX_NAME_LEN);
+        rstrcpy(fileCreateInp.fileName,      dataObjInfo->filePath, MAX_NAME_LEN);
+        rstrcpy(fileCreateInp.in_pdmo,       dataObjInfo->in_pdmo,  MAX_NAME_LEN );
+        fileCreateInp.mode = getFileMode(dataObjInp);
+        copyKeyVal(&dataObjInfo->condInput, &fileCreateInp.condInput);
+
+        if ( chkType == NO_CHK_PATH_PERM ) {
+            fileCreateInp.otherFlags |= NO_CHK_PERM_FLAG;
+        }
+
+        //loop until we find a valid filename
+        int retryCnt = 0;
+        int l3descInx;
+        do {
+            fileCreateOut_t* create_out{};
+            l3descInx = rsFileCreate(rsComm, &fileCreateInp, &create_out);
+
+            // update the dataObjInfo with the potential changes made by the resource - hcj
+            if (create_out) {
+                rstrcpy(dataObjInfo->rescHier, fileCreateInp.resc_hier_, MAX_NAME_LEN);
+                rstrcpy(dataObjInfo->filePath, create_out->file_name, MAX_NAME_LEN);
+                free(create_out);
             }
 
-            if (UNKNOWN_OBJ_T == rodsObjStatOut->objType) {
-                return specCollSubCreate( rsComm, dataObjInp );
-            }
+            //update the filename in case of a retry
+            rstrcpy(fileCreateInp.fileName, dataObjInfo->filePath, MAX_NAME_LEN);
+            retryCnt++;
         }
-    }
+        while ( l3descInx < 0 && getErrno( l3descInx ) == EEXIST &&
+                resolveDupFilePath( rsComm, dataObjInfo, dataObjInp ) >= 0 &&
+                l3descInx <= 2 && retryCnt < 100 );
+        clearKeyVal( &fileCreateInp.condInput );
+        return l3descInx;
+    } // l3CreateByObjInfo
 
-    addKeyVal(&dataObjInp.condInput, OPEN_TYPE_KW, std::to_string(CREATE_TYPE).c_str());
-    int l1descInx = allocL1desc();
-    if (l1descInx < 0) {
-        return l1descInx;
-    }
-
-    dataObjInfo_t* dataObjInfo = (dataObjInfo_t*)malloc(sizeof(dataObjInfo_t));
-    initDataObjInfoWithInp(dataObjInfo, &dataObjInp);
-
-    const char* resc_hier = getValByKey(&dataObjInp.condInput, RESC_HIER_STR_KW);
-    if (resc_hier) {
-        // we need to favor the results from the PEP acSetRescSchemeForCreate
-        std::string root = irods::hierarchy_parser{resc_hier}.first_resc();
-        rstrcpy( dataObjInfo->rescName, root.c_str(), NAME_LEN );
-        rstrcpy( dataObjInfo->rescHier, resc_hier, MAX_NAME_LEN );
-    }
-
-    irods::error ret = resc_mgr.hier_to_leaf_id(dataObjInfo->rescHier, dataObjInfo->rescId);
-    if(!ret.ok()) {
-        irods::log(PASS(ret));
-        return ret.code();
-    }
-
-    dataObjInfo->replStatus = INTERMEDIATE_REPLICA;
-    fillL1desc(l1descInx, &dataObjInp, dataObjInfo, dataObjInfo->replStatus, dataObjInp.dataSize);
-
-    status = getFilePathName(rsComm, dataObjInfo, L1desc[l1descInx].dataObjInp);
-    if ( status < 0 ) {
-        freeL1desc( l1descInx );
-        return status;
-    }
-
-    status = register_intermediate_replica(rsComm, L1desc[l1descInx].dataObjInp, dataObjInfo->filePath);
-    if (status < 0) {
-        freeL1desc(l1descInx);
-        return status;
-    }
-
-    if (getValByKey(&dataObjInp.condInput, NO_OPEN_FLAG_KW)) {
-        return l1descInx;
-    }
-
-    status = l3Create(rsComm, l1descInx);
-    if (status < 0) {
-        rodsLog(LOG_NOTICE,
-                "%s: l3Create of %s failed, status = %d",
-                __FUNCTION__, L1desc[l1descInx].dataObjInfo->filePath, status );
-        dataObjInfo_t* data_obj_info = L1desc[l1descInx].dataObjInfo;
-        const int unlink_status = dataObjUnlinkS(rsComm, L1desc[l1descInx].dataObjInp, data_obj_info);
-        if (unlink_status < 0) {
-            irods::log(ERROR(unlink_status,
-                (boost::format("dataObjUnlinkS failed for [%s] with [%d]") %
-                data_obj_info->filePath % unlink_status).str()));
+    int create_sub_struct_file(rsComm_t *rsComm, const int l1descInx)
+    {
+        dataObjInfo_t *dataObjInfo = L1desc[l1descInx].dataObjInfo;
+        std::string location{};
+        irods::error ret = irods::get_loc_for_hier_string( dataObjInfo->rescHier, location );
+        if (!ret.ok()) {
+            irods::log(LOG_ERROR, fmt::format(
+                "{} - failed in get_loc_for_hier_string:[{}]; ec:[{}]",
+                __FUNCTION__, ret.result(), ret.code()));
+            return ret.code();
         }
-        freeL1desc(l1descInx);
-        return status;
-    }
-    L1desc[l1descInx].l3descInx = status;
-    return l1descInx;
-} // create_data_obj
 
-int stageBundledData( rsComm_t * rsComm, dataObjInfo_t **subfileObjInfoHead ) {
-    dataObjInfo_t *dataObjInfoHead = *subfileObjInfoHead;
-    char* cacheRescName{};
-    int status = unbunAndStageBunfileObj(
-                    rsComm,
-                    dataObjInfoHead->filePath,
-                    &cacheRescName);
-    if ( status < 0 ) {
-        return status;
-    }
-
-    /* query the bundle dataObj */
-    dataObjInp_t dataObjInp{};
-    addKeyVal( &dataObjInp.condInput, RESC_NAME_KW, cacheRescName );
-    rstrcpy( dataObjInp.objPath, dataObjInfoHead->objPath, MAX_NAME_LEN );
-
-    dataObjInfo_t* cacheObjInfo{};
-    status = getDataObjInfo( rsComm, &dataObjInp, &cacheObjInfo, NULL, 0 );
-    clearKeyVal( &dataObjInp.condInput );
-    if ( status < 0 ) {
-        rodsLog( LOG_ERROR,
-                 "%s: getDataObjInfo of subfile %s failed.stat=%d",
-                 __FUNCTION__, dataObjInp.objPath, status );
-        return status;
-    }
-    /* que the cache copy at the top */
-    queDataObjInfo( subfileObjInfoHead, cacheObjInfo, 0, 1 );
-    return status;
-}
-
-int l3Open(
-    rsComm_t *rsComm,
-    int l1descInx)
-{
-    dataObjInfo_t* dataObjInfo = L1desc[l1descInx].dataObjInfo;
-    if (!dataObjInfo) {
-        return SYS_INTERNAL_NULL_INPUT_ERR;
-    }
-
-    std::string location{};
-    irods::error ret = irods::get_loc_for_hier_string( dataObjInfo->rescHier, location );
-    if ( !ret.ok() ) {
-        irods::log( PASSMSG( "l3Open - failed in get_loc_for_hier_string", ret ) );
-        return ret.code();
-    }
-
-    if ( getStructFileType( dataObjInfo->specColl ) >= 0 ) {
         subFile_t subFile{};
         rstrcpy( subFile.subFilePath, dataObjInfo->subPath, MAX_NAME_LEN );
         rstrcpy( subFile.addr.hostAddr, location.c_str(), NAME_LEN );
+
         subFile.specColl = dataObjInfo->specColl;
         subFile.mode = getFileMode( L1desc[l1descInx].dataObjInp );
-        subFile.flags = getFileFlags( l1descInx );
-        return rsSubStructFileOpen( rsComm, &subFile );
-    }
+        return rsSubStructFileCreate( rsComm, &subFile );
+    } // create_sub_struct_file
 
-    fileOpenInp_t fileOpenInp{};
-    rstrcpy( fileOpenInp.resc_name_, dataObjInfo->rescName, MAX_NAME_LEN );
-    rstrcpy( fileOpenInp.resc_hier_, dataObjInfo->rescHier, MAX_NAME_LEN );
-    rstrcpy( fileOpenInp.objPath,    dataObjInfo->objPath, MAX_NAME_LEN );
-    rstrcpy( fileOpenInp.addr.hostAddr,  location.c_str(), NAME_LEN );
-    rstrcpy( fileOpenInp.fileName, dataObjInfo->filePath, MAX_NAME_LEN );
-    fileOpenInp.mode = getFileMode(L1desc[l1descInx].dataObjInp);
-    fileOpenInp.flags = getFileFlags(l1descInx);
-    rstrcpy( fileOpenInp.in_pdmo, dataObjInfo->in_pdmo, MAX_NAME_LEN );
+    int create_physical_file(RsComm& _comm, const int _l1_index)
+    {
+        auto& l1desc = L1desc[_l1_index];
 
-    copyKeyVal(&dataObjInfo->condInput, &fileOpenInp.condInput);
+        if (getStructFileType(l1desc.dataObjInfo->specColl) >= 0) {
+            return create_sub_struct_file(&_comm, _l1_index);
+        }
 
-    const int l3descInx = rsFileOpen(rsComm, &fileOpenInp);
-    clearKeyVal( &fileOpenInp.condInput );
-    return l3descInx;
-} // l3Open
+        return l3CreateByObjInfo(&_comm, l1desc.dataObjInp, l1desc.dataObjInfo);
+    } // create_physical_file
 
-int open_with_obj_info(
-    rsComm_t* rsComm,
-    dataObjInp_t& dataObjInp,
-    dataObjInfo_t* dataObjInfo)
-{
-    int l1descInx = allocL1desc();
-    if (l1descInx < 0) {
-        return l1descInx;
-    }
+    int specCollSubCreate(rsComm_t* rsComm, dataObjInp_t& dataObjInp)
+    {
+        dataObjInfo_t* dataObjInfo{};
+        int status = resolvePathInSpecColl( rsComm, dataObjInp.objPath, WRITE_COLL_PERM, 0, &dataObjInfo );
+        if (!dataObjInfo) {
+            rodsLog(LOG_ERROR, "%s :: dataObjInfo is null", __FUNCTION__ );
+            return status;
+        }
+        if (status >= 0) {
+            irods::log(LOG_ERROR, fmt::format(
+                "{}: phyPath {} already exist",
+                __FUNCTION__, dataObjInfo->filePath));
+            freeDataObjInfo( dataObjInfo );
+            return SYS_COPY_ALREADY_IN_RESC;
+        }
+        else if (status != SYS_SPEC_COLL_OBJ_NOT_EXIST) {
+            freeDataObjInfo( dataObjInfo );
+            return status;
+        }
 
-    const int repl_status = dataObjInfo->replStatus | OPEN_EXISTING_COPY;
-    copyKeyVal(&dataObjInp.condInput, &dataObjInfo->condInput);
-
-    /* the size was set to -1 because we don't know the target size.
-     * For copy and replicate, the calling routine should modify this
-     * dataSize */
-    fillL1desc(l1descInx, &dataObjInp, dataObjInfo, repl_status, -1);
-
-    if (getValByKey(&dataObjInp.condInput, NO_OPEN_FLAG_KW)) {
-        /* don't actually physically open the file */
-        return l1descInx;
-    }
-
-    if (getValByKey(&dataObjInp.condInput, PHYOPEN_BY_SIZE_KW)) {
-        int single_buff_sz;
+        int l1_index = 0;
         try {
-            single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
-        } catch (const irods::exception& e) {
-            irods::log(e);
+            auto replica = replica_proxy{*dataObjInfo};
+            replica.replica_status(INTERMEDIATE_REPLICA);
+
+            l1_index = populate_L1desc_with_inp(dataObjInp, replica, dataObjInp.dataSize);
+
+            L1desc[l1_index].l3descInx = create_physical_file(*rsComm, l1_index);
+
+            return l1_index;
+        }
+        catch (const irods::exception& e) {
+            irods::log(LOG_NOTICE, fmt::format(
+                "{}: create_physical_file of {} failed, status = {}",
+                __FUNCTION__, L1desc[l1_index].dataObjInfo->filePath, e.code()));
+            freeL1desc(l1_index);
             return e.code();
         }
+    } // specCollSubCreate
 
-        /* open for put or get. May do "dataInclude" */
-        if (dataObjInfo->dataSize <= single_buff_sz &&
-            (getValByKey(&dataObjInp.condInput, DATA_INCLUDED_KW) ||
-             dataObjInfo->dataSize != UNKNOWN_FILE_SZ)) {
-            return l1descInx;
+    auto create_new_replica(rsComm_t& _comm, dataObjInp_t& _inp, DataObjInfo* _existing_replica_list) -> int
+    {
+        auto cond_input = ix::make_key_value_proxy(_inp.condInput);
+
+        rodsObjStat_t* stat{};
+        const irods::at_scope_exit free_obj_stat_out{
+            [&stat]() {
+                freeRodsObjStat(stat);
+            }
+        };
+
+        cond_input[SEL_OBJ_TYPE_KW] = "dataObj";
+        if (const int ec = rsObjStat(&_comm, &_inp, &stat); ec >= 0) {
+            if (stat) {
+                if (COLL_OBJ_T == stat->objType) {
+                    return USER_INPUT_PATH_ERR;
+                }
+
+                if (stat->specColl) {
+                    // Linked collection should have been translated by this point
+                    if (LINKED_COLL == stat->specColl->collClass) {
+                        return SYS_COLL_LINK_PATH_ERR;
+                    }
+
+                    if (UNKNOWN_OBJ_T == stat->objType) {
+                        return specCollSubCreate(&_comm, _inp );
+                    }
+                }
+            }
         }
-    }
+        else {
+            irods::log(LOG_DEBUG, fmt::format(
+                "[{}:{}] - rsObjStat failed with [{}]",
+                __FUNCTION__, __LINE__, ec));
+        }
 
-    int status = l3Open(rsComm, l1descInx);
-    if (status <= 0) {
-        rodsLog(LOG_NOTICE, "%s: l3Open of %s failed, status = %d",
-                __FUNCTION__, dataObjInfo->filePath, status);
-        freeL1desc( l1descInx );
-        return status;
-    }
+        std::string_view hierarchy = cond_input.at(RESC_HIER_STR_KW).value();
 
-    auto& fd = L1desc[l1descInx];
-    fd.l3descInx = status;
+        // conjuring a brand new data object info - intentionally take ownership of allocated struct
+        // NOTE: all of this information is free'd and overwritten by the structure in the rsPhyPathReg
+        // call, but is required to inform the database about the replica we are creating.
+        auto [new_replica, lm] = replica::make_replica_proxy();
+        lm.release();
+        new_replica.logical_path(_inp.objPath);
+        new_replica.replica_status(INTERMEDIATE_REPLICA);
+        new_replica.hierarchy(hierarchy);
+        new_replica.resource_id(resc_mgr.hier_to_leaf_id(new_replica.hierarchy()));
+        new_replica.resource(irods::hierarchy_parser{new_replica.hierarchy().data()}.first_resc());
+        new_replica.mode(std::to_string(_inp.createMode));
+        new_replica.type(cond_input.contains(DATA_TYPE_KW) ? cond_input.at(DATA_TYPE_KW).value() : GENERIC_DT_STR);
 
-    // Set the size of the data object to zero in the catalog if the file was truncated.
-    // It is important that the catalog reflect truncation immediately because operations
-    // following the open may depend on the size of the data object.
-    if (fd.dataObjInp->openFlags & O_TRUNC) {
-        if (const auto access_mode = (fd.dataObjInp->openFlags & O_ACCMODE);
-            access_mode == O_WRONLY || access_mode == O_RDWR)
-        {
-            dataObjInfo_t info{};
-            rstrcpy(info.objPath, fd.dataObjInp->objPath, MAX_NAME_LEN);
-            rstrcpy(info.rescHier, fd.dataObjInfo->rescHier, MAX_NAME_LEN);
+        if (cond_input.contains(DATA_ID_KW)) {
+            new_replica.data_id(std::atoll(cond_input.at(DATA_ID_KW).value().data()));
+        }
 
-            keyValPair_t kvp{};
-            addKeyVal(&kvp, DATA_SIZE_KW, "0");
-            if (getValByKey(&dataObjInp.condInput, ADMIN_KW)) {
-                addKeyVal(&kvp, ADMIN_KW, "");
+        if (cond_input.contains(FILE_PATH_KW)) {
+            new_replica.physical_path(cond_input.at(FILE_PATH_KW).value());
+        }
+
+        cond_input[OPEN_TYPE_KW] = std::to_string(CREATE_TYPE);
+        const int l1_index = populate_L1desc_with_inp(_inp, new_replica, _inp.dataSize);
+        auto& l1desc = L1desc[l1_index];
+
+        if (const int ec = getFilePathName(&_comm, new_replica.get(), l1desc.dataObjInp); ec < 0) {
+            freeL1desc(l1_index);
+
+            THROW(ec, fmt::format(
+                "[{}] - failed to get file path name for [{]] on hierarchy [{}]",
+                __FUNCTION__, new_replica.logical_path(), new_replica.hierarchy()));
+        }
+
+        auto l1_cond_input = irods::experimental::make_key_value_proxy(l1desc.dataObjInp->condInput);
+        l1_cond_input[REGISTER_AS_INTERMEDIATE_KW] = "";
+        l1_cond_input[FILE_PATH_KW] = new_replica.physical_path();
+        l1_cond_input[DATA_SIZE_KW] = std::to_string(0);
+
+        if (const int ec = rsPhyPathReg(&_comm, l1desc.dataObjInp); ec < 0) {
+            THROW(ec, fmt::format("[{}] - failed in rsPhyPathReg", __FUNCTION__));
+        }
+
+        if (cond_input.contains(KEY_VALUE_PASSTHROUGH_KW)) {
+            auto info_cond_input = irods::experimental::make_key_value_proxy(L1desc[l1_index].dataObjInfo->condInput);
+            info_cond_input[KEY_VALUE_PASSTHROUGH_KW] = cond_input.at(KEY_VALUE_PASSTHROUGH_KW).value();
+        }
+
+        // TODO: new_replica is free'd in rsPhyPathReg, making the proxy unusable
+        // Need to find a better way to populate the information going in or coming out so that the interface makes more sense
+        auto registered_replica = irods::experimental::replica::make_replica_proxy(*l1desc.dataObjInfo);
+
+        if (!l1desc.dataObjInfo->specColl) {
+            if (rst::contains(registered_replica.data_id())) {
+                if (_existing_replica_list) {
+                    auto obj = irods::experimental::data_object::make_data_object_proxy(*_existing_replica_list);
+                    obj.add_replica(*registered_replica.get());
+                }
+                rst::insert(registered_replica);
+            }
+            else {
+                auto obj = irods::experimental::data_object::make_data_object_proxy(*registered_replica.get());
+                rst::insert(obj);
             }
 
-            modDataObjMeta_t input{};
-            input.dataObjInfo = &info;
-            input.regParam = &kvp;
+            if (const int ec = rst::publish_to_catalog(_comm, registered_replica.data_id(), registered_replica.replica_number(), nlohmann::json{}); ec < 0) {
+                THROW(ec, fmt::format("[{}:{}] - failed to update replica statuses", __FUNCTION__, __LINE__));
+            }
+        }
 
-            if (const auto ec = rsModDataObjMeta(rsComm, &input); ec != 0) {
-                rodsLog(LOG_ERROR, "dataOpen: Could not update size of data object [status = %d, path = %s]",
-                        ec, info.objPath);
+        if (cond_input.contains(NO_OPEN_FLAG_KW)) {
+            return l1_index;
+        }
+
+        const auto l3_index = create_physical_file(_comm, l1_index);
+        if (l3_index < 0) {
+            irods::log(LOG_NOTICE, fmt::format(
+                "[{}:{}] - l3Create of [{}] failed, status = [{}]",
+                __FUNCTION__, __LINE__, registered_replica.physical_path(), l3_index));
+
+            if (const int ec = irods::stale_replica(_comm, l1desc, *l1desc.dataObjInfo); ec < 0) {
+                irods::log(LOG_ERROR, fmt::format(
+                    "[{}:{}] - failed to stale replica at [{}] with [{}]",
+                    __FUNCTION__, __LINE__, registered_replica.logical_path(), ec));
+            }
+
+            if (const int ec = dataObjUnlinkS(&_comm, l1desc.dataObjInp, l1desc.dataObjInfo); ec < 0) {
+                irods::log(LOG_ERROR, fmt::format(
+                    "[{}:{}] - dataObjUnlinkS failed for [{}] with [{}]",
+                    __FUNCTION__, __LINE__, registered_replica.physical_path(), ec));
+            }
+
+            freeL1desc(l1_index);
+
+            return l3_index;
+        }
+
+        L1desc[l1_index].l3descInx = l3_index;
+
+        try {
+            update_replica_access_table(_comm, update_operation::create, l1_index, _inp);
+        }
+        catch (const irods::exception& e) {
+            irods::log(LOG_ERROR, fmt::format(
+                       "Could not update replica access table for newly created data object. "
+                       "Closing data object and setting replica status to stale. "
+                       "[path={}, error_code={}, exception={}]",
+                       _inp.objPath, e.code(), e.what()));
+
+            if (const auto ec = close_replica(_comm, l1_index); ec < 0) {
+                auto hier = ix::key_value_proxy{_inp.condInput}[RESC_HIER_STR_KW].value();
+                irods::log(LOG_ERROR, fmt::format(
+                    "Failed to close replica [error_code={}, path={}, hierarchy={}]",
+                    ec, _inp.objPath, hier));
                 return ec;
             }
 
-            fd.dataSize = 0;
+            if (const auto ec = change_replica_status(_comm, _inp, STALE_REPLICA); ec < 0) {
+                auto hier = ix::key_value_proxy{_inp.condInput}[RESC_HIER_STR_KW].value();
+                irods::log(LOG_ERROR, fmt::format(
+                    "Failed to set the replica's replica status to stale "
+                    "[error_code={}, path={}, hierarchy={}]",
+                    ec, _inp.objPath, hier));
+                return ec;
+            }
 
-            if (fd.dataObjInfo) {
-                fd.dataObjInfo->dataSize = 0;
+            return e.code();
+        }
+
+        return l1_index;
+    } // create_new_replica
+
+    int stage_bundled_data_to_cache_directory(rsComm_t * rsComm, dataObjInfo_t **subfileObjInfoHead)
+    {
+        dataObjInfo_t *dataObjInfoHead = *subfileObjInfoHead;
+        char* cacheRescName{};
+        int status = unbunAndStageBunfileObj(
+                        rsComm,
+                        dataObjInfoHead->filePath,
+                        &cacheRescName);
+        if ( status < 0 ) {
+            return status;
+        }
+
+        /* query the bundle dataObj */
+        dataObjInp_t dataObjInp{};
+        addKeyVal( &dataObjInp.condInput, RESC_NAME_KW, cacheRescName );
+        rstrcpy( dataObjInp.objPath, dataObjInfoHead->objPath, MAX_NAME_LEN );
+
+        dataObjInfo_t* cacheObjInfo{};
+        status = getDataObjInfo( rsComm, &dataObjInp, &cacheObjInfo, NULL, 0 );
+        clearKeyVal( &dataObjInp.condInput );
+        if ( status < 0 ) {
+            rodsLog( LOG_ERROR,
+                     "%s: getDataObjInfo of subfile %s failed.stat=%d",
+                     __FUNCTION__, dataObjInp.objPath, status );
+            return status;
+        }
+        /* que the cache copy at the top */
+        queDataObjInfo( subfileObjInfoHead, cacheObjInfo, 0, 1 );
+        return status;
+    } // stage_bundled_data_to_cache_directory
+
+    int l3Open(rsComm_t *rsComm, int l1descInx)
+    {
+        dataObjInfo_t* dataObjInfo = L1desc[l1descInx].dataObjInfo;
+        if (!dataObjInfo) {
+            return SYS_INTERNAL_NULL_INPUT_ERR;
+        }
+
+        std::string location{};
+        irods::error ret = irods::get_loc_for_hier_string( dataObjInfo->rescHier, location );
+        if ( !ret.ok() ) {
+            irods::log(LOG_ERROR, fmt::format(
+                "{} - failed in get_loc_for_hier_string:[{}]; ec:[{}]",
+                __FUNCTION__, ret.result(), ret.code()));
+            return ret.code();
+        }
+
+        if ( getStructFileType( dataObjInfo->specColl ) >= 0 ) {
+            subFile_t subFile{};
+            rstrcpy( subFile.subFilePath, dataObjInfo->subPath, MAX_NAME_LEN );
+            rstrcpy( subFile.addr.hostAddr, location.c_str(), NAME_LEN );
+            subFile.specColl = dataObjInfo->specColl;
+            subFile.mode = getFileMode( L1desc[l1descInx].dataObjInp );
+            subFile.flags = getFileFlags( l1descInx );
+            return rsSubStructFileOpen( rsComm, &subFile );
+        }
+
+        fileOpenInp_t fileOpenInp{};
+        rstrcpy( fileOpenInp.resc_name_, dataObjInfo->rescName, MAX_NAME_LEN );
+        rstrcpy( fileOpenInp.resc_hier_, dataObjInfo->rescHier, MAX_NAME_LEN );
+        rstrcpy( fileOpenInp.objPath,    dataObjInfo->objPath, MAX_NAME_LEN );
+        rstrcpy( fileOpenInp.addr.hostAddr,  location.c_str(), NAME_LEN );
+        rstrcpy( fileOpenInp.fileName, dataObjInfo->filePath, MAX_NAME_LEN );
+        fileOpenInp.mode = getFileMode(L1desc[l1descInx].dataObjInp);
+        fileOpenInp.flags = getFileFlags(l1descInx);
+        rstrcpy( fileOpenInp.in_pdmo, dataObjInfo->in_pdmo, MAX_NAME_LEN );
+
+        copyKeyVal(&dataObjInfo->condInput, &fileOpenInp.condInput);
+
+        const int l3descInx = rsFileOpen(rsComm, &fileOpenInp);
+        clearKeyVal( &fileOpenInp.condInput );
+        return l3descInx;
+    } // l3Open
+
+    auto open_replica(RsComm& _comm, DataObjInp& _inp, replica_proxy& _replica) -> int
+    {
+        copyKeyVal(&_inp.condInput, _replica.cond_input().get());
+
+        /* the size was set to -1 because we don't know the target size.
+         * For copy and replicate, the calling routine should modify this
+         * dataSize */
+        const int l1_index = populate_L1desc_with_inp(_inp, _replica, -1);
+
+        const auto open_for_write = getWriteFlag(_inp.openFlags);
+        if (open_for_write) {
+            L1desc[l1_index].replStatus = INTERMEDIATE_REPLICA;
+        }
+
+        L1desc[l1_index].openType = open_for_write ? OPEN_FOR_WRITE_TYPE : OPEN_FOR_READ_TYPE;
+
+        if (_replica.cond_input().contains(NO_OPEN_FLAG_KW)) {
+            /* don't actually physically open the file */
+            return l1_index;
+        }
+
+        if (_replica.cond_input().contains(PHYOPEN_BY_SIZE_KW)) {
+            try {
+                const auto single_buffer_size = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
+                if (_replica.size() <= single_buffer_size &&
+                    (UNKNOWN_FILE_SZ != _replica.size() || _replica.cond_input().contains(DATA_INCLUDED_KW))) {
+                    return l1_index;
+                }
+            }
+            catch (const irods::exception& e) {
+                freeL1desc(l1_index);
+                throw;
             }
         }
-    }
 
-    return l1descInx;
-} // open_with_obj_info
-
-int applyPreprocRuleForOpen(
-    rsComm_t* rsComm,
-    dataObjInp_t* dataObjInp,
-    dataObjInfo_t** dataObjInfoHead)
-{
-    ruleExecInfo_t rei;
-    initReiWithDataObjInp( &rei, rsComm, dataObjInp );
-    rei.doi = *dataObjInfoHead;
-
-    // make resource properties available as rule session variables
-    irods::get_resc_properties_as_kvp(rei.doi->rescHier, rei.condInputData);
-
-    int status = applyRule( "acPreprocForDataObjOpen", NULL, &rei, NO_SAVE_REI );
-    clearKeyVal(rei.condInputData);
-    free(rei.condInputData);
-
-    if ( status < 0 ) {
-        if ( rei.status < 0 ) {
-            status = rei.status;
+        const int l3_index = l3Open(&_comm, l1_index);
+        if (l3_index <= 0) {
+            freeL1desc(l1_index);
+            THROW(l3_index, fmt::format(
+                "[{}] - l3Open of {} failed, status = {}",
+                __FUNCTION__, _inp.objPath, l3_index));
         }
-        rodsLog( LOG_ERROR,
-                 "%s:acPreprocForDataObjOpen error for %s,stat=%d",
-                 __FUNCTION__, dataObjInp->objPath, status );
-    }
-    else {
-        *dataObjInfoHead = rei.doi;
-    }
-    return status;
-} // applyPreprocRuleForOpen
 
-bool hier_has_replica(
-    const std::vector<irods::physical_object>& _replicas,
-    const std::string& _hier)
-{
-    return std::any_of(_replicas.begin(), _replicas.end(),
-        [&_hier](const irods::physical_object& _replica) {
-            return _replica.resc_hier() == _hier;
-        });
-} // hier_has_replica
+        auto& fd = L1desc[l1_index];
+        fd.l3descInx = l3_index;
 
-int change_replica_status_to_intermediate(
-    rsComm_t* rsComm,
-    dataObjInp_t& dataObjInp,
-    dataObjInfo_t* dataObjInfo)
-{
-    using namespace irods::experimental;
-    keyValPair_t kvp{};
-    replKeyVal(&dataObjInp.condInput, &kvp);
-    key_value_proxy proxy{kvp};
-    proxy[REPL_STATUS_KW] = std::to_string(INTERMEDIATE_REPLICA);
-    proxy.erase(ALL_KW);
-    proxy.erase(OPEN_TYPE_KW);
-    //proxy[IN_PDMO_KW] = dataObjInfo->rescHier;
+        // Set the size of the data object to zero in the catalog if the file was truncated.
+        // It is important that the catalog reflect truncation immediately because operations
+        // following the open may depend on the size of the data object.
+        //
+        // TODO: do not touch the catalog -- update the structure and use this in lock_data_object
+        if (fd.dataObjInp->openFlags & O_TRUNC) {
+            if (const auto access_mode = (fd.dataObjInp->openFlags & O_ACCMODE);
+                access_mode == O_WRONLY || access_mode == O_RDWR)
+            {
+                dataObjInfo_t info{};
+                rstrcpy(info.objPath, fd.dataObjInp->objPath, MAX_NAME_LEN);
+                rstrcpy(info.rescHier, fd.dataObjInfo->rescHier, MAX_NAME_LEN);
 
-    modDataObjMeta_t inp{};
-    inp.dataObjInfo = dataObjInfo;
-    inp.regParam = proxy.get();
-    const int status = rsModDataObjMeta(rsComm, &inp);
-    if (status < 0) {
-        rodsLog(LOG_ERROR,
-            "[%s] - rsModDataObjMeta failed with [%d] when modifying [%s] replica [%d]",
-            __FUNCTION__, status, dataObjInp.objPath, dataObjInfo->replNum);
-    }
-    return status;
-} // change_replica_status_to_intermediate
+                keyValPair_t kvp{};
+                addKeyVal(&kvp, DATA_SIZE_KW, "0");
+                if (getValByKey(&_inp.condInput, ADMIN_KW)) {
+                    addKeyVal(&kvp, ADMIN_KW, "");
+                }
 
-int change_replica_status(rsComm_t& rsComm, dataObjInp_t& dataObjInp, int new_replica_status)
-{
+                modDataObjMeta_t input{};
+                input.dataObjInfo = &info;
+                input.regParam = &kvp;
+
+                if (const auto ec = rsModDataObjMeta(&_comm, &input); ec != 0) {
+                    THROW(ec, fmt::format(
+                        "{}: Could not update size of data object [status = {}, path = {}]",
+                        __FUNCTION__, ec, _inp.objPath));
+                }
+
+                fd.dataSize = 0;
+
+                if (fd.dataObjInfo) {
+                    fd.dataObjInfo->dataSize = 0;
+                }
+            }
+        }
+
+        return l1_index;
+    } // open_replica
+
+    auto get_data_object_info_for_open(RsComm& _comm, DataObjInp& _inp)
+        -> std::tuple<irods::error, irods::file_object_ptr, DataObjInfo*, std::string>
     {
-        const auto l = {GOOD_REPLICA, INTERMEDIATE_REPLICA, STALE_REPLICA};
-        if (std::none_of(std::begin(l), std::end(l), [x = new_replica_status](auto y) { return x == y; })) {
-            return SYS_INVALID_INPUT_PARAM;
+        ix::key_value_proxy kvp{_inp.condInput};
+
+        std::string hier{};
+        if (kvp.contains(RESC_HIER_STR_KW)) {
+            hier = kvp.at(RESC_HIER_STR_KW).value().data();
         }
-    }
 
-    irods::experimental::key_value_proxy src{dataObjInp.condInput};
-    auto resc_hier = src[RESC_HIER_STR_KW].value();
+        // If the client specified a leaf resource, then discover the hierarchy and
+        // store it in the keyValPair_t. This instructs the iRODS server to create
+        // the replica at the specified resource if it does not exist.
+        if (kvp.contains(LEAF_RESOURCE_NAME_KW)) {
+            auto leaf = kvp[LEAF_RESOURCE_NAME_KW].value();
+            bool is_coord_resc = false;
 
-    dataObjInfo_t info{};
-    rstrcpy(info.objPath, dataObjInp.objPath, MAX_NAME_LEN);
-    rstrcpy(info.rescHier, resc_hier.data(), MAX_NAME_LEN);
+            if (const auto err = resc_mgr.is_coordinating_resource(leaf.data(), is_coord_resc); !err.ok()) {
+                THROW(err.code(), err.result());
+            }
 
-    keyValPair_t kvp{};
-    irods::experimental::key_value_proxy dst{kvp};
-    dst[REPL_STATUS_KW] = std::to_string(new_replica_status);
+            // Leaf resources cannot be coordinating resources. This essentially checks
+            // if the resource has any child resources which is exactly what we're interested in.
+            if (is_coord_resc) {
+                THROW(USER_INVALID_RESC_INPUT, fmt::format("[{}] is not a leaf resource.", leaf));
+            }
 
-    modDataObjMeta_t inp{};
-    inp.dataObjInfo = &info;
-    inp.regParam = dst.get();
+            if (const auto err = resc_mgr.get_hier_to_root_for_resc(leaf.data(), hier); !err.ok()) {
+                THROW(err.code(), err.result());
+            }
+        }
 
-    return rsModDataObjMeta(&rsComm, &inp);
-} // change_replica_status_to_stale
+        // Get replica information for data object, resolving hierarchy if necessary
+        dataObjInfo_t* info_head{};
 
-int close_replica(rsComm_t& conn, int l1desc_index)
-{
-    openedDataObjInp_t input{};
-    input.l1descInx = l1desc_index;
-    return rsDataObjClose(&conn, &input);
-}
+        irods::file_object_ptr file_obj;
 
-int _rsDataObjOpen(
-    rsComm_t* rsComm,
-    dataObjInp_t& dataObjInp,
-    dataObjInfo_t* dataObjInfoHead,
-    irods::file_object_ptr _obj)
-{
-    char* lockType = getValByKey(&dataObjInp.condInput, LOCK_TYPE_KW);
-    int lockFd = -1;
-    if (lockType) {
-        lockFd = irods::server_api_call(
-                     DATA_OBJ_LOCK_AN,
-                     rsComm, &dataObjInp,
-                     NULL, (void**)NULL, NULL);
-        if ( lockFd > 0 ) {
-            /* rm it so it won't be done again causing deadlock */
-            rmKeyVal(&dataObjInp.condInput, LOCK_TYPE_KW);
+        if (hier.empty()) {
+            try {
+                std::tie(file_obj, hier) = irods::resolve_resource_hierarchy(
+                    (_inp.openFlags & O_CREAT) ? irods::CREATE_OPERATION : irods::OPEN_OPERATION,
+                    &_comm, _inp, &info_head);
+            }
+            catch (const irods::exception& e) {
+                // If the data object does not exist, then the exception will contain
+                // an error code of CAT_NO_ROWS_FOUND.
+                if (e.code() == CAT_NO_ROWS_FOUND) {
+                    rodsLog(LOG_DEBUG, "Data object or replica does not exist [error_code=%d, path=%s].", e.code(), _inp.objPath);
+                    return {ERROR(OBJ_PATH_DOES_NOT_EXIST, ""), nullptr, nullptr, {}};
+                }
+
+                irods::log(e);
+                return {irods::error{e}, nullptr, nullptr, {}};
+            }
         }
         else {
-            rodsLog(LOG_ERROR,
-                    "%s: lock error for %s. lockType = %s",
-                    __FUNCTION__, dataObjInp.objPath, lockType );
-            return lockFd;
+            irods::file_object_ptr tmp{new irods::file_object()};
+            irods::error fac_err = irods::file_object_factory(&_comm, &_inp, tmp, &info_head);
+            if (!fac_err.ok() && CAT_NO_ROWS_FOUND != fac_err.code()) {
+                irods::log(fac_err);
+            }
+            std::swap(tmp, file_obj);
         }
-    }
 
-    const auto unlock_data_obj{[&]() {
-        char fd_string[NAME_LEN]{};
-        snprintf( fd_string, sizeof( fd_string ), "%-d", lockFd );
-        addKeyVal( &dataObjInp.condInput, LOCK_FD_KW, fd_string );
-        irods::server_api_call(
-            DATA_OBJ_UNLOCK_AN,
-            rsComm,
-            &dataObjInp,
-            NULL,
-            ( void** ) NULL,
-            NULL );
-    }};
+        return {SUCCESS(), file_obj, info_head, hier};
+    } // get_data_object_info_for_open
 
-    // If O_RDWR or O_WRONLY is set in the open flags, then "writeFlag" will be set to "1".
-    const int writeFlag = getWriteFlag(dataObjInp.openFlags);
+    auto apply_static_pep_data_obj_open_pre(RsComm& _comm, DataObjInp& _inp, DataObjInfo** _info_head) -> void
+    {
+        ruleExecInfo_t rei;
+        initReiWithDataObjInp( &rei, &_comm, &_inp );
+        rei.doi = *_info_head;
 
-    // Depending on the conditions, this block may create a new replica.
-    if (dataObjInp.openFlags & O_CREAT && writeFlag > 0) {
-        const std::string resc_hier = getValByKey(&dataObjInp.condInput, RESC_HIER_STR_KW);
-        if (!hier_has_replica(_obj->replicas(), resc_hier)) {
-            int l1descInx = create_data_obj(rsComm, dataObjInp);
+        // make resource properties available as rule session variables
+        irods::get_resc_properties_as_kvp(rei.doi->rescHier, rei.condInputData);
 
-            if ( lockFd >= 0 ) {
-                if ( l1descInx > 0 ) {
-                    L1desc[l1descInx].lockFd = lockFd;
-                }
-                else {
-                    unlock_data_obj();
-                }
-            }
-            
-            if (l1descInx >= 0) {
-                try {
-                    update_replica_access_table(*rsComm, update_operation::create, l1descInx, dataObjInp);
-                }
-                catch (const irods::exception& e) {
-                    rodsLog(LOG_ERROR, "Could not update replica access table for newly created data object. "
-                                       "Closing data object and setting replica status to stale. "
-                                       "[error_code=%d, path=%s, exception=%s]",
-                                       e.code(), dataObjInp.objPath, e.what());
+        int status = applyRule( "acPreprocForDataObjOpen", NULL, &rei, NO_SAVE_REI );
+        clearKeyVal(rei.condInputData);
+        free(rei.condInputData);
 
-                    if (const auto ec = close_replica(*rsComm, l1descInx); ec < 0) {
-                        auto hier = ix::key_value_proxy{dataObjInp.condInput}[RESC_HIER_STR_KW].value();
-                        rodsLog(LOG_ERROR, "Failed to close replica [error_code=%d, path=%s, hierarchy=%s]",
-                                           ec, dataObjInp.objPath, hier.data());
-                        return ec;
-                    }
-
-                    if (const auto ec = change_replica_status(*rsComm, dataObjInp, STALE_REPLICA); ec < 0) {
-                        auto hier = ix::key_value_proxy{dataObjInp.condInput}[RESC_HIER_STR_KW].value();
-                        rodsLog(LOG_ERROR, "Failed to set the replica's replica status to stale "
-                                           "[error_code={}, path={}, hierarchy={}]",
-                                           ec, dataObjInp.objPath, hier.data());
-                        return ec;
-                    }
-
-                    return e.code();
-                }
+        if (status < 0) {
+            if (rei.status < 0) {
+                status = rei.status;
             }
 
+            THROW(status, fmt::format(
+                "{}:acPreprocForDataObjOpen error for {},stat={}",
+                __FUNCTION__, _inp.objPath, status));
+        }
+
+        *_info_head = rei.doi;
+    } // apply_static_pep_data_obj_open_pre
+
+    auto leaf_resource_is_bundleresc(const std::string_view _hierarchy)
+    {
+        std::string resc_class{};
+        const irods::error prop_err = irods::get_resource_property<std::string>(
+            resc_mgr.hier_to_leaf_id(_hierarchy), irods::RESOURCE_CLASS, resc_class);
+        return prop_err.ok() && irods::RESOURCE_CLASS_BUNDLE == resc_class;
+    } // leaf_resource_is_bundleresc
+
+    int rsDataObjOpen_impl(rsComm_t *rsComm, dataObjInp_t *dataObjInp)
+    {
+        rodsServerHost_t* rodsServerHost{};
+        int remoteFlag = getAndConnRemoteZone(rsComm, dataObjInp, &rodsServerHost, REMOTE_OPEN);
+        if (remoteFlag < 0) {
+            return remoteFlag;
+        }
+        else if (REMOTE_HOST == remoteFlag) {
+            openStat_t* stat{};
+            const int status = rcDataObjOpenAndStat(rodsServerHost->conn, dataObjInp, &stat);
+            if (status < 0) {
+                return status;
+            }
+            const int l1descInx = allocAndSetL1descForZoneOpr(status, dataObjInp, rodsServerHost, stat);
+            if (stat) {
+                free(stat);
+            }
             return l1descInx;
         }
 
-        const std::string hier{getValByKey(&dataObjInp.condInput, RESC_HIER_STR_KW)};
-        const std::string root_resc = irods::hierarchy_parser{hier}.first_resc();
-        addKeyVal(&dataObjInp.condInput, DEST_RESC_NAME_KW, root_resc.c_str());
-        addKeyVal(&dataObjInp.condInput, OPEN_TYPE_KW, std::to_string(OPEN_FOR_WRITE_TYPE).c_str());
-    }
+        enable_creation_of_additional_replicas(*rsComm);
 
-    // Shifts the entries in the dataObjInfo list around so that the target
-    // replica is at the front.
-    int status = sortObjInfoForOpen(&dataObjInfoHead, &dataObjInp.condInput, writeFlag);
-    if (status < 0) {
-        if (lockFd > 0) {
-            unlock_data_obj();
-        }
-        std::stringstream msg;
-        msg << __FUNCTION__;
-        msg << " - Unable to select a data obj info matching the resource hierarchy from the keywords.";
-        irods::log(ERROR(status, msg.str()));
-        return status;
-    }
+        auto cond_input = irods::experimental::key_value_proxy(dataObjInp->condInput);
 
-    status = applyPreprocRuleForOpen( rsComm, &dataObjInp, &dataObjInfoHead );
-    if (status < 0) {
-        if (lockFd > 0) {
-            unlock_data_obj();
-        }
-        return status;
-    }
+        // TODO: remove lock fd
+        int lockFd = -1;
 
-    if ( getStructFileType( dataObjInfoHead->specColl ) < 0 && writeFlag > 0 ) {
-        char* rescName{};
-        if ((rescName = getValByKey(&dataObjInp.condInput, DEST_RESC_NAME_KW)) ||
-            (rescName = getValByKey(&dataObjInp.condInput, BACKUP_RESC_NAME_KW)) ||
-            (rescName = getValByKey(&dataObjInp.condInput, DEF_RESC_NAME_KW))) {
-            status = requeDataObjInfoByResc(&dataObjInfoHead, rescName, writeFlag, 1);
-        }
+        const auto unlock_data_obj{[&]() {
+            char fd_string[NAME_LEN]{};
+            snprintf( fd_string, sizeof( fd_string ), "%-d", lockFd );
+            cond_input[LOCK_FD_KW] = fd_string;
+            irods::server_api_call(
+                DATA_OBJ_UNLOCK_AN,
+                rsComm,
+                dataObjInp,
+                NULL,
+                ( void** ) NULL,
+                NULL );
+        }};
+        // end lock fd section
 
-        if ( status < 0 ) {
-            if ( lockFd > 0 ) {
-                unlock_data_obj();
+        try {
+            auto [error, file_obj, info_head, hierarchy] = get_data_object_info_for_open(*rsComm, *dataObjInp);
+
+            if (!error.ok()) {
+                return error.code();
             }
-            freeAllDataObjInfo( dataObjInfoHead );
-            return status;
-        }
-    }
 
-    // Stage bundled data to cache directory, if necessary
-    std::string resc_class{};
-    irods::error prop_err = irods::get_resource_property<std::string>(
-                                dataObjInfoHead->rescId, irods::RESOURCE_CLASS, resc_class);
-    if (prop_err.ok() && resc_class == irods::RESOURCE_CLASS_BUNDLE) {
-        status = stageBundledData(rsComm, &dataObjInfoHead);
-        if ( status < 0 ) {
-            rodsLog( LOG_ERROR,
-                     "%s: stageBundledData of %s failed stat=%d",
-                     __FUNCTION__, dataObjInfoHead->objPath, status );
-            freeAllDataObjInfo( dataObjInfoHead );
-            if ( lockFd >= 0 ) {
-                unlock_data_obj();
+            if (!cond_input.contains(RESC_HIER_STR_KW)) {
+                cond_input[RESC_HIER_STR_KW] = hierarchy;
             }
-            return status;
-        }
-    }
 
-    dataObjInfo_t* tmpDataObjInfo = dataObjInfoHead;
-    while (tmpDataObjInfo) {
-        dataObjInfo_t* nextDataObjInfo = tmpDataObjInfo->next;
-        tmpDataObjInfo->next = NULL;
-        int l1descInx = open_with_obj_info(rsComm, dataObjInp, tmpDataObjInfo);
+            cond_input[SELECTED_HIERARCHY_KW] = hierarchy;
 
-        if (l1descInx >= 0) {
-            if (writeFlag > 0) {
-                const auto old_replica_status = L1desc[l1descInx].replStatus;
-                L1desc[l1descInx].openType = OPEN_FOR_WRITE_TYPE;
-                status = change_replica_status_to_intermediate(rsComm, dataObjInp, tmpDataObjInfo);
-                if (status < 0) {
-                    if (const auto ec = close_replica(*rsComm, l1descInx); ec < 0) {
+            // TODO: remove lock fd
+            if (cond_input.contains(LOCK_TYPE_KW) && cond_input.at(LOCK_TYPE_KW).value().data()) {
+                rodsLog(LOG_DEBUG, "[%s:%d] - locking file with type [%s]",
+                    __FUNCTION__, __LINE__, getValByKey(&dataObjInp->condInput, LOCK_TYPE_KW));
+
+                lockFd = irods::server_api_call(
+                             DATA_OBJ_LOCK_AN,
+                             rsComm, dataObjInp,
+                             NULL, (void**)NULL, NULL);
+
+                if (lockFd <= 0) {
+                    rodsLog(LOG_ERROR, "%s: lock error for %s. lockType = %s, lockFd: %d",
+                            __FUNCTION__, dataObjInp->objPath, cond_input.at(LOCK_TYPE_KW).value().data(), lockFd );
+                    return lockFd;
+                }
+
+                /* rm it so it won't be done again causing deadlock */
+                cond_input.erase(LOCK_TYPE_KW);
+            }
+            // end lock fd section
+
+            // determine if the replica described by the inputs exists
+            if (dataObjInp->openFlags & O_CREAT) {
+                if (!irods::hierarchy_has_replica(file_obj, hierarchy)) {
+                    //const int l1descInx = create_new_replica(*rsComm, *dataObjInp, file_obj);
+                    const int l1descInx = create_new_replica(*rsComm, *dataObjInp, info_head);
+
+                    if (lockFd > 0) {
+                        if (l1descInx < 3) {
+                            unlock_data_obj();
+                        }
+                        else {
+                            L1desc[l1descInx].lockFd = lockFd;
+                        }
+                    }
+
+                    return l1descInx;
+                }
+
+                // This is an overwrite - swizzle some flags
+                dataObjInp->openFlags |= O_RDWR;
+                cond_input[DEST_RESC_NAME_KW] = irods::hierarchy_parser{hierarchy.data()}.first_resc();
+                cond_input[OPEN_TYPE_KW] = std::to_string(OPEN_FOR_WRITE_TYPE);
+            }
+
+            // The data object information pointer must be populated in order to do anything below.
+            if (!info_head) {
+                THROW(SYS_REPLICA_DOES_NOT_EXIST, fmt::format(
+                    "[{}] - no data object was found for [{}]",
+                    __FUNCTION__, dataObjInp->objPath));
+            }
+
+            // We need to migrate bundled data to the cache directory before opening. Bundled data is not
+            // considered for intermediate replicas as it is legacy behavior, so we simply stage the data
+            // and open the replica in this case.
+            if (leaf_resource_is_bundleresc(hierarchy)) {
+                if (const int ec = stage_bundled_data_to_cache_directory(rsComm, &info_head); ec < 0) {
+                    if (lockFd > 0) {
+                        unlock_data_obj();
+                    }
+                    freeAllDataObjInfo(info_head);
+                    return ec;
+                }
+
+                apply_static_pep_data_obj_open_pre(*rsComm, *dataObjInp, &info_head);
+
+                auto replica = irods::experimental::replica::make_replica_proxy(*info_head);
+
+                const int l1descInx = open_replica(*rsComm, *dataObjInp, replica);
+                if (l1descInx < 0) {
+                    THROW(l1descInx, fmt::format(
+                        "[{}] - failed to open replica:[{}]",
+                        __FUNCTION__, l1descInx));
+                }
+                else if (l1descInx < 3) {
+                    THROW(SYS_FILE_DESC_OUT_OF_RANGE, fmt::format(
+                        "[{}] - file descriptor out of range:[{}]",
+                        __FUNCTION__, l1descInx));
+                }
+
+                if ( lockFd >= 0 ) {
+                    L1desc[l1descInx].lockFd = lockFd;
+                }
+
+                return l1descInx;
+            }
+
+            // If the winning replica is not found in the list of replicas, something has gone horribly
+            // wrong and we should bail immediately. We need to reference the winning replica whereas in
+            // the past the linked list was sorted with the winning replica at the head.
+            auto obj = data_object::make_data_object_proxy(*info_head);
+
+            auto maybe_replica = data_object::find_replica(obj, hierarchy);
+            if (!maybe_replica) {
+                THROW(SYS_REPLICA_DOES_NOT_EXIST, fmt::format(
+                    "[{}] - no replica found for [{}] on [{}]",
+                    __FUNCTION__, obj.logical_path(), hierarchy));
+            }
+
+            auto replica = *maybe_replica;
+
+            // Record the current replica status so that it can be restored later.
+            const auto old_replica_status = replica.replica_status();
+
+            // If the catalog information indicates that the selected replica is intermediate, check
+            // to see if the provided replica token will be accepted by the replica access table.
+            // If not, the open request is disallowed because multiple opens of the same replica are
+            // not allowed without a valid replica token.
+            const auto replica_access_granted = [&replica, &cond_input]() -> bool
+            {
+                // TODO: This should be updated to account for logical locking...
+                if (INTERMEDIATE_REPLICA != replica.replica_status()) {
+                    return true;
+                }
+
+                if (!cond_input.contains(REPLICA_TOKEN_KW)) {
+                    return false;
+                }
+
+                auto token = cond_input.at(REPLICA_TOKEN_KW).value();
+                return rat::contains(token.data(), replica.data_id(), replica.replica_number());
+            }();
+
+            if (!replica_access_granted) {
+                THROW(USER_INTERMEDIATE_REPLICA_ACCESS, fmt::format(
+                    "[{}:{}] - selected replica is an intermediate replica",
+                    __FUNCTION__, __LINE__));
+            }
+
+            if (replica.special_collection_info()) {
+                apply_static_pep_data_obj_open_pre(*rsComm, *dataObjInp, &info_head);
+
+                irods::log(LOG_DEBUG, fmt::format(
+                    "[{}:{}] - attempting open for [{}], repl:[{}], hier:[{}]",
+                    __FUNCTION__, __LINE__,
+                    replica.logical_path(),
+                    replica.replica_number(),
+                    replica.hierarchy()));
+
+                const int l1descInx = open_replica(*rsComm, *dataObjInp, replica);
+                if (l1descInx < 0) {
+                    THROW(l1descInx, fmt::format(
+                        "[{}] - failed to open replica:[{}]",
+                        __FUNCTION__, l1descInx));
+                }
+                else if (l1descInx < 3) {
+                    THROW(SYS_FILE_DESC_OUT_OF_RANGE, fmt::format(
+                        "[{}] - file descriptor out of range:[{}]",
+                        __FUNCTION__, l1descInx));
+                }
+
+                if ( lockFd >= 0 ) {
+                    L1desc[l1descInx].lockFd = lockFd;
+                }
+
+                return l1descInx;
+            }
+
+            // Insert the data object information into the replica state table before the replica status is
+            // updated because the "before" state is supposed to represent the state of the data object before
+            // it is modified (in this particular case, before its replica status is modified).
+            rst::insert(obj);
+
+            if (const auto open_for_write = getWriteFlag(dataObjInp->openFlags); open_for_write) {
+                replica.replica_status(INTERMEDIATE_REPLICA);
+
+                rst::update(replica.data_id(), replica.replica_number(),
+                    nlohmann::json{{"data_is_dirty", std::to_string(replica.replica_status())}});
+
+                if (const int ec = rst::publish_to_catalog(*rsComm, replica.data_id(), replica.replica_number(), nlohmann::json{}); ec < 0) {
+                    const irods::at_scope_exit erase_rst_entry{[&replica] { rst::erase(replica.data_id()); }};
+
+                    irods::log(LOG_ERROR, fmt::format("failed to update replica status to intermediate"));
+
+                    replica.replica_status(old_replica_status);
+
+                    if (const int ec = rst::publish_to_catalog(*rsComm, replica.data_id(), replica.replica_number(), nlohmann::json{}); ec < 0) {
+                        irods::log(LOG_ERROR, fmt::format(
+                            "Failed to restore the replica's replica status "
+                            "[error_code={}, path={}, hierarchy={}, original_replica_status={}]",
+                            ec, dataObjInp->objPath, hierarchy, old_replica_status));
+
                         return ec;
                     }
 
-                    return status;
+                    return ec;
                 }
+            }
 
-                try {
+            apply_static_pep_data_obj_open_pre(*rsComm, *dataObjInp, &info_head);
+
+            irods::log(LOG_DEBUG, fmt::format(
+                "[{}:{}] - attempting open for [{}], repl:[{}], hier:[{}]",
+                __FUNCTION__, __LINE__,
+                replica.logical_path(),
+                replica.replica_number(),
+                replica.hierarchy()));
+
+            const int l1descInx = open_replica(*rsComm, *dataObjInp, replica);
+            if (l1descInx < 0) {
+                THROW(l1descInx, fmt::format(
+                    "[{}] - failed to open replica:[{}]",
+                    __FUNCTION__, l1descInx));
+            }
+            else if (l1descInx < 3) {
+                THROW(SYS_FILE_DESC_OUT_OF_RANGE, fmt::format(
+                    "[{}] - file descriptor out of range:[{}]",
+                    __FUNCTION__, l1descInx));
+            }
+
+            try {
+                if (INTERMEDIATE_REPLICA == replica.replica_status()) {
                     // Replica tokens only apply to write operations against intermediate replicas.
-                    auto& rat = irods::experimental::replica_access_table::instance();
-
+                    //
                     // There is a case where the client wants to open an existing replica for writes
                     // but does not have a replica token because the client is the first one to open
                     // the replica. "update" should be used when the replica is in an intermediate state.
-                    if (rat.contains(tmpDataObjInfo->dataId, tmpDataObjInfo->replNum)) {
-                        update_replica_access_table(*rsComm, update_operation::update, l1descInx, dataObjInp);
+                    if (rat::contains(replica.data_id(), replica.replica_number())) {
+                        update_replica_access_table(*rsComm, update_operation::update, l1descInx, *dataObjInp);
                     }
                     else {
-                        update_replica_access_table(*rsComm, update_operation::create, l1descInx, dataObjInp);
+                        update_replica_access_table(*rsComm, update_operation::create, l1descInx, *dataObjInp);
                     }
-                }
-                catch (const irods::exception& e) {
-                    rodsLog(LOG_ERROR, "Could not update replica access table for data object. "
-                                       "Closing data object and setting replica status to it's original value. "
-                                       "[error_code=%d, path=%s, exception=%s]",
-                                       dataObjInp.objPath, e.code(), e.what());
-
-                    if (const auto ec = close_replica(*rsComm, l1descInx); ec < 0) {
-                        auto hier = ix::key_value_proxy{dataObjInp.condInput}[RESC_HIER_STR_KW].value();
-                        rodsLog(LOG_ERROR, "Failed to close replica [error_code=%d, path=%s, hierarchy=%s]",
-                                           ec, dataObjInp.objPath, hier.data());
-                        return ec;
-                    }
-
-                    if (const auto ec = change_replica_status(*rsComm, dataObjInp, old_replica_status); ec < 0) {
-                        auto hier = ix::key_value_proxy{dataObjInp.condInput}[RESC_HIER_STR_KW].value();
-                        rodsLog(LOG_ERROR, "Failed to restore the replica's replica status "
-                                           "[error_code=%d, path=%s, hierarchy=%s, original_replica_status=%d]",
-                                           ec, dataObjInp.objPath, hier.data(), old_replica_status);
-                        return ec;
-                    }
-
-                    return e.code();
-                }
-                catch (const std::exception& e) {
-                    rodsLog(LOG_ERROR, "%s - %s", __FUNCTION__, e.what());
-                    return SYS_INTERNAL_ERR;
                 }
             }
-            else {
-                L1desc[l1descInx].openType = OPEN_FOR_READ_TYPE;
+            catch (const irods::exception& e) {
+                irods::log(LOG_ERROR, fmt::format("Could not update replica access table for data object. "
+                                   "Closing data object and setting replica status to its original value. "
+                                   "[error_code={}, path={}, exception={}]",
+                                   dataObjInp->objPath, e.code(), e.what()));
+
+                if (const auto ec = close_replica(*rsComm, l1descInx); ec < 0) {
+                    auto hier = ix::key_value_proxy{dataObjInp->condInput}[RESC_HIER_STR_KW].value();
+                    irods::log(LOG_ERROR, fmt::format("Failed to close replica [error_code={}, path={}, hierarchy={}]",
+                                       ec, dataObjInp->objPath, hier));
+                    return ec;
+                }
+
+                if (const auto ec = change_replica_status(*rsComm, *dataObjInp, old_replica_status); ec < 0) {
+                    auto hier = ix::key_value_proxy{dataObjInp->condInput}[RESC_HIER_STR_KW].value();
+                    irods::log(LOG_ERROR, fmt::format("Failed to restore the replica's replica status "
+                                       "[error_code={}, path={}, hierarchy={}, original_replica_status={}]",
+                                       ec, dataObjInp->objPath, hier, old_replica_status));
+                    return ec;
+                }
+
+                return e.code();
             }
 
             if ( lockFd >= 0 ) {
@@ -865,20 +1107,34 @@ int _rsDataObjOpen(
 
             return l1descInx;
         }
-
-        status = l1descInx;
-        tmpDataObjInfo = nextDataObjInfo;
-    }
-
-    return status;
-} // _rsDataObjOpen
-
+        catch (const irods::exception& e) {
+            irods::log(e);
+            if (lockFd > 0) {
+                unlock_data_obj();
+            }
+            return e.code();
+        }
+        catch (const std::exception& e) {
+            irods::log(LOG_ERROR, fmt::format("[{}:{}] - [{}]", __FUNCTION__, __LINE__, e.what()));
+            if (lockFd > 0) {
+                unlock_data_obj();
+            }
+            return SYS_LIBRARY_ERROR;
+        }
+        catch (...) {
+            irods::log(LOG_ERROR, fmt::format("[{}] - unknown error has occurred.", __FUNCTION__));
+            if (lockFd > 0) {
+                unlock_data_obj();
+            }
+            return SYS_UNKNOWN_ERROR;
+        }
+    } // rsDataObjOpen_impl
 } // anonymous namespace
 
-int rsDataObjOpen(
-    rsComm_t *rsComm,
-    dataObjInp_t *dataObjInp)
+int rsDataObjOpen(rsComm_t *rsComm, dataObjInp_t *dataObjInp)
 {
+    namespace fs = ix::filesystem;
+
     if (!dataObjInp) {
         return SYS_INTERNAL_NULL_INPUT_ERR;
     }
@@ -891,81 +1147,32 @@ int rsDataObjOpen(
         return USER_INCOMPATIBLE_OPEN_FLAGS;
     }
 
-    rodsServerHost_t* rodsServerHost{};
-    int remoteFlag = getAndConnRemoteZone(rsComm, dataObjInp, &rodsServerHost, REMOTE_OPEN);
-    if (remoteFlag < 0) {
-        return remoteFlag;
-    }
-    else if (REMOTE_HOST == remoteFlag) {
-        openStat_t* stat{};
-        const int status = rcDataObjOpenAndStat(rodsServerHost->conn, dataObjInp, &stat);
-        if (status < 0) {
-            return status;
-        }
-        const int l1descInx = allocAndSetL1descForZoneOpr(status, dataObjInp, rodsServerHost, stat);
-        if (stat) {
-            free(stat);
-        }
-        return l1descInx;
-    }
+    const auto data_object_exists = fs::server::exists(*rsComm, dataObjInp->objPath);
+    const auto fd = rsDataObjOpen_impl(rsComm, dataObjInp);
 
-    using irods::experimental::key_value_proxy;
+    constexpr auto minimum_valid_file_descriptor = 3;
 
-    key_value_proxy kvp{dataObjInp->condInput};
+    // Update the parent collection's mtime.
+    if (fd >= minimum_valid_file_descriptor && !data_object_exists) {
+        const auto parent_path = fs::path{dataObjInp->objPath}.parent_path();
 
-    // If the client specified a leaf resource, then discover the hierarchy and
-    // store it in the keyValPair_t. This instructs the iRODS server to create
-    // the replica at the specified resource if it does not exist.
-    if (kvp.contains(LEAF_RESOURCE_NAME_KW)) {
-        std::string hier;
-        auto leaf = kvp[LEAF_RESOURCE_NAME_KW].value();
-        bool is_coord_resc = false;
+        if (fs::server::is_collection_registered(*rsComm, parent_path)) {
+            using std::chrono::system_clock;
+            using std::chrono::time_point_cast;
 
-        if (const auto err = resc_mgr.is_coordinating_resource(leaf.data(), is_coord_resc); !err.ok()) {
-            rodsLog(LOG_ERROR, err.result().data());
-            return err.code();
-        }
+            const auto mtime = time_point_cast<fs::object_time_type::duration>(system_clock::now());
 
-        // Leaf resources cannot be coordinating resources. This essentially checks
-        // if the resource has any child resources which is exactly what we're interested in.
-        if (is_coord_resc) {
-            rodsLog(LOG_ERROR, "[%s] is not a leaf resource.", leaf.data());
-            return USER_INVALID_RESC_INPUT;
-        }
-
-        if (const auto err = resc_mgr.get_hier_to_root_for_resc(leaf.data(), hier); !err.ok()) {
-            rodsLog(LOG_ERROR, err.result().data());
-            return err.code();
-        }
-
-        kvp[RESC_HIER_STR_KW] = hier;
-    }
-
-    enable_creation_of_additional_replicas(*rsComm);
-
-    dataObjInfo_t* dataObjInfoHead{};
-
-    if (!kvp.contains(RESC_HIER_STR_KW)) {
-        try {
-            const auto operation = (dataObjInp->openFlags & O_CREAT) ?
-                irods::CREATE_OPERATION : irods::OPEN_OPERATION;
-            auto [file_obj, hier] = irods::resolve_resource_hierarchy(operation, rsComm, *dataObjInp, &dataObjInfoHead);
-            kvp[RESC_HIER_STR_KW] = hier;
-            return _rsDataObjOpen(rsComm, *dataObjInp, dataObjInfoHead, file_obj);
-        }
-        catch (const irods::exception& e) {
-            rodsLog(LOG_ERROR, "[%s] - resolve_resource_hierarchy failed with [%d] when opening [%s]",
-                    __FUNCTION__, e.code(), dataObjInp->objPath);
-            return e.code();
+            try {
+                ix::scoped_privileged_client spc{*rsComm};
+                fs::server::last_write_time(*rsComm, parent_path, mtime);
+            }
+            catch (const fs::filesystem_error& e) {
+                rodsLog(LOG_ERROR, e.what());
+                return e.code().value();
+            }
         }
     }
-    else {
-        irods::file_object_ptr file_obj(new irods::file_object());
-        irods::error fac_err = irods::file_object_factory(rsComm, dataObjInp, file_obj, &dataObjInfoHead);
-        if (!fac_err.ok()) {
-            irods::log(fac_err);
-        }
-        return _rsDataObjOpen(rsComm, *dataObjInp, dataObjInfoHead, file_obj);
-    }
+
+    return fd;
 }
 

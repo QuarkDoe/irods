@@ -10,6 +10,7 @@
 #include "querySpecColl.h"
 #include "objMetaOpr.hpp"
 #include "collection.hpp"
+#include "rodsPath.h"
 #include "specColl.hpp"
 #include "resource.hpp"
 #include "rcGlobalExtern.h"
@@ -18,12 +19,16 @@
 #include "miscServerFunct.hpp"
 #include "irods_configuration_keywords.hpp"
 #include "rsGenQuery.hpp"
+#include "irods_resource_backport.hpp"
+#include "rsSubStructFileStat.hpp"
+#include "rsFileStat.hpp"
 
-int
-rsObjStat(
-    rsComm_t *rsComm,
-    dataObjInp_t *dataObjInp,
-    rodsObjStat_t **rodsObjStatOut ) {
+int rsObjStat(rsComm_t *rsComm,
+              dataObjInp_t *dataObjInp,
+              rodsObjStat_t **rodsObjStatOut )
+{
+    remove_trailing_path_separators(dataObjInp->objPath);
+
     int status;
     rodsServerHost_t *rodsServerHost = NULL;
     specCollCache_t *specCollCache = NULL;
@@ -320,3 +325,39 @@ dataObjStat( rsComm_t *rsComm, dataObjInp_t *dataObjInp,
 
     return status;
 }
+
+int l3Stat(
+    rsComm_t *rsComm,
+    dataObjInfo_t *dataObjInfo,
+    rodsStat_t **myStat)
+{
+    fileStatInp_t fileStatInp;
+    int status;
+
+    if ( getStructFileType( dataObjInfo->specColl ) >= 0 ) {
+
+        std::string location;
+        irods::error ret = irods::get_loc_for_hier_string( dataObjInfo->rescHier, location );
+        if ( !ret.ok() ) {
+            irods::log( PASSMSG( "l3Stat - failed in get_loc_for_hier_string", ret ) );
+            return -1;
+        }
+
+        subFile_t subFile;
+        memset( &subFile, 0, sizeof( subFile ) );
+        rstrcpy( subFile.subFilePath, dataObjInfo->subPath, MAX_NAME_LEN );
+        rstrcpy( subFile.addr.hostAddr, location.c_str(), NAME_LEN );
+
+        subFile.specColl = dataObjInfo->specColl;
+        status = rsSubStructFileStat( rsComm, &subFile, myStat );
+    }
+    else {
+        memset( &fileStatInp, 0, sizeof( fileStatInp ) );
+        rstrcpy( fileStatInp.fileName, dataObjInfo->filePath, MAX_NAME_LEN );
+        rstrcpy( fileStatInp.rescHier, dataObjInfo->rescHier, MAX_NAME_LEN );
+        rstrcpy( fileStatInp.objPath, dataObjInfo->objPath, MAX_NAME_LEN );
+        status = rsFileStat( rsComm, &fileStatInp, myStat );
+    }
+    return status;
+} // l3Stat
+

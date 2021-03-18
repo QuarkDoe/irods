@@ -91,18 +91,18 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         _,out,_ = self.admin.assert_icommand(['iquest', '''"select DATA_RESC_HIER where DATA_NAME = '{0}' and DATA_REPL_NUM = '0'"'''.format(filename)], 'STDOUT_SINGLELINE', 'DATA_RESC_HIER')
         replica_0_resc = out.splitlines()[0].split()[-1].split(';')[-1]
         phypath_for_data_obj = os.path.join(self.admin.get_vault_session_path(replica_0_resc), filename)
+        # write more bytes to the file than what is recorded in the catalog.
         with open(phypath_for_data_obj, 'w') as f:
-            f.write("corrupting the data")
-        with open(phypath_for_data_obj, 'r') as f:
-            new_checksum = hashlib.sha256(f.read()).digest().encode("base64").strip()
+            f.write("corrupting the data" * 30)
+        new_checksum = 'LfxR4fKm3dK119M8llWLlDHLKvnRGTGH2bsldD2Er1c='
 
         # forcibly re-calculate corrupted checksum and ensure that original checksum was not overwritten
-        self.admin.assert_icommand(['ichksum', '-f', '-n0', filename], 'STDOUT_SINGLELINE', 'Total checksum performed = 1, Failed checksum = 0')
+        self.admin.assert_icommand(['ichksum', '-f', '-n0', filename], 'STDOUT_SINGLELINE', 'sha2:' + new_checksum)
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + new_checksum)
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + original_checksum)
 
         # forcibly re-calculate all checksums and ensure that original checksum was not changed
-        self.admin.assert_icommand(['ichksum', '-f', '-a', filename], 'STDOUT_SINGLELINE', 'Total checksum performed = 1, Failed checksum = 0')
+        self.admin.assert_icommand(['ichksum', '-f', '-a', filename], 'STDOUT_SINGLELINE', 'WARNING: Data object has replicas with different checksums.')
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + new_checksum)
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + original_checksum)
 
@@ -258,11 +258,11 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl " + filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         # should not have a replica 4
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
@@ -285,11 +285,11 @@ class Test_Resource_RandomWithinReplication(ResourceSuite, ChunkyDevTest, unitte
         self.admin.assert_icommand("irepl " + filename)
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
         # replicate overtop default resource
-        self.admin.assert_icommand("irepl " + filename)
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # replicate overtop test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # local cleanup
@@ -782,7 +782,7 @@ OUTPUT ruleExecOut
             rc, _, stderr = self.admin.assert_icommand_fail(['irule', '-r', 'irods_rule_engine_plugin-irods_rule_language-instance', '-F', rule_file_path])
 
             self.admin.assert_icommand(['ilsresc', '-l', 'demoResc'], 'STDOUT_SINGLELINE', ['free space', free_space])
-            self.assertTrue(0 != rc)
+            self.assertNotEqual(0, rc)
             self.assertTrue('status = -32000 SYS_INVALID_RESC_INPUT' in stderr)
 
             msg = 'could not find existing non-root path from vault path'
@@ -884,9 +884,10 @@ OUTPUT ruleExecOut
         self.admin.assert_icommand('ils -L ' + full_logical_path, 'STDOUT_SINGLELINE', filename)  # should be listed
         file_vault_full_path = os.path.join(self.admin.get_vault_session_path(), long_collection_name, filename)
         # method 1
-        self.admin.assert_icommand('ichksum -K ' + full_logical_path, 'STDOUT_MULTILINE',
-                                   ['Total checksum performed = 1, Failed checksum = 0',
-                                    'sha2:' + orig_digest])  # ichksum
+        out, err, ec = self.admin.run_icommand('ichksum -K ' + full_logical_path)
+        self.assertEqual(ec, 0)
+        self.assertEqual(len(out), 0)
+        self.assertEqual(len(err), 0)
         # method 2
         self.admin.assert_icommand("iquest \"select DATA_CHECKSUM where DATA_NAME = '%s'\"" % filename,
                                    'STDOUT_SINGLELINE', ['DATA_CHECKSUM = sha2:' + orig_digest])  # iquest
@@ -906,9 +907,7 @@ OUTPUT ruleExecOut
         self.admin.assert_icommand('iunreg ' + full_logical_path)
         self.admin.assert_icommand('ireg ' + file_vault_full_path + ' ' + full_logical_path)
         self.admin.assert_icommand('ifsck -K ' + file_vault_full_path, 'STDOUT_SINGLELINE', ['WARNING: checksum not available'])  # ifsck
-        self.admin.assert_icommand('ichksum -f ' + full_logical_path, 'STDOUT_MULTILINE',
-                                   ['Total checksum performed = 1, Failed checksum = 0',
-                                    'sha2:' + new_digest])
+        self.admin.assert_icommand('ichksum -f ' + full_logical_path, 'STDOUT', ['sha2:' + new_digest])
         self.admin.assert_icommand('ifsck -K ' + file_vault_full_path)  # ifsck
         # local cleanup
         os.remove(filepath)
@@ -1318,11 +1317,11 @@ class Test_Resource_CompoundWithMockarchive(ChunkyDevTest, ResourceSuite, unitte
         self.admin.assert_icommand("irepl " + filename)
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
         # replicate overtop default resource
-        self.admin.assert_icommand("irepl " + filename)
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # replicate overtop test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # local cleanup
@@ -1341,11 +1340,11 @@ class Test_Resource_CompoundWithMockarchive(ChunkyDevTest, ResourceSuite, unitte
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl " + filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         # should not have a replica 4
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
@@ -1646,11 +1645,11 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
         self.admin.assert_icommand("irepl " + filename)
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
         # replicate overtop default resource
-        self.admin.assert_icommand("irepl " + filename)
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # replicate overtop test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # local cleanup
@@ -1669,11 +1668,11 @@ class Test_Resource_CompoundWithUnivmss(ChunkyDevTest, ResourceSuite, unittest.T
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl " + filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         # should not have a replica 4
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
@@ -1839,7 +1838,7 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         self.admin.assert_icommand(['itrim', '-n0', '-N1', filename], 'STDOUT_SINGLELINE', "files trimmed")
 
         # run ichksum on data object, which will replicate to cache
-        self.admin.assert_icommand(['ichksum', '-f', filename], 'STDOUT_SINGLELINE', 'Total checksum performed = 1, Failed checksum = 0')
+        self.admin.assert_icommand(['ichksum', '-f', filename], 'STDOUT_SINGLELINE', filename + '    sha2:')
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + original_checksum)
 
         self.assertTrue(str(os.stat(phypath_for_data_obj).st_mtime) == original_archive_mtime, msg='Archive mtime changed after ichksum - not good!')
@@ -2274,11 +2273,11 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         self.admin.assert_icommand("irepl " + filename)
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
         # replicate overtop default resource
-        self.admin.assert_icommand("irepl " + filename)
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # replicate overtop test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # local cleanup
@@ -2297,11 +2296,11 @@ class Test_Resource_Compound(ChunkyDevTest, ResourceSuite, unittest.TestCase):
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl " + filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         # should not have a replica 4
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
@@ -2561,10 +2560,10 @@ class Test_Resource_ReplicationWithinReplication(ChunkyDevTest, ResourceSuite, u
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         self.admin.assert_icommand("irepl " + filename)               # replicate to default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl " + filename)               # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 4
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 4
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
         # local cleanup
@@ -2583,11 +2582,11 @@ class Test_Resource_ReplicationWithinReplication(ChunkyDevTest, ResourceSuite, u
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl " + filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         # should not have a replica 5
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
@@ -3011,11 +3010,11 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
         self.admin.assert_icommand("irepl " + filename)
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
         # replicate overtop default resource
-        self.admin.assert_icommand("irepl " + filename)
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 5
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
         # replicate overtop test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 5
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
         # local cleanup
@@ -3034,11 +3033,11 @@ class Test_Resource_ReplicationToTwoCompound(ChunkyDevTest, ResourceSuite, unitt
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl " + filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         # should not have a replica 6
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 6 ", " & " + filename])
@@ -3405,11 +3404,11 @@ class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDev
         self.admin.assert_icommand("irepl " + filename)
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
         # replicate overtop default resource
-        self.admin.assert_icommand("irepl " + filename)
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 5
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
         # replicate overtop test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 5
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
         # local cleanup
@@ -3428,11 +3427,11 @@ class Test_Resource_ReplicationToTwoCompoundResourcesWithPreferArchive(ChunkyDev
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl " + filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         # should not have a replica 6
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 6 ", " & " + filename])
@@ -3693,18 +3692,18 @@ class Test_Resource_Replication(ChunkyDevTest, ResourceSuite, unittest.TestCase)
         _,out,_ = self.admin.assert_icommand(['iquest', '''"select DATA_RESC_HIER where DATA_NAME = '{0}' and DATA_REPL_NUM = '0'"'''.format(filename)], 'STDOUT_SINGLELINE', 'DATA_RESC_HIER')
         replica_0_resc = out.splitlines()[0].split()[-1].split(';')[-1]
         phypath_for_data_obj = os.path.join(self.admin.get_vault_session_path(replica_0_resc), filename)
+        # write more bytes to the file than what is recorded in the catalog.
         with open(phypath_for_data_obj, 'w') as f:
-            f.write("corrupting the data")
-        with open(phypath_for_data_obj, 'r') as f:
-            new_checksum = hashlib.sha256(f.read()).digest().encode("base64").strip()
+            f.write("corrupting the data" * 30)
+        new_checksum = 'LfxR4fKm3dK119M8llWLlDHLKvnRGTGH2bsldD2Er1c='
 
         # forcibly re-calculate corrupted checksum and ensure that original checksum was not overwritten
-        self.admin.assert_icommand(['ichksum', '-f', '-n0', filename], 'STDOUT_SINGLELINE', 'Total checksum performed = 1, Failed checksum = 0')
+        self.admin.assert_icommand(['ichksum', '-f', '-n0', filename], 'STDOUT', filename + '    sha2:' + new_checksum)
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + new_checksum)
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + original_checksum)
 
         # forcibly re-calculate all checksums and ensure that original checksum was not changed
-        self.admin.assert_icommand(['ichksum', '-f', '-a', filename], 'STDOUT_SINGLELINE', 'Total checksum performed = 1, Failed checksum = 0')
+        self.admin.assert_icommand(['ichksum', '-f', '-a', filename], 'STDOUT', 'WARNING: Data object has replicas with different checksums.')
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + new_checksum)
         self.admin.assert_icommand(['ils', '-L', filename], 'STDOUT_SINGLELINE', "sha2:" + original_checksum)
 
@@ -3831,32 +3830,34 @@ OUTPUT ruleExecOut
 
         self.admin.assert_icommand('ils -L ' + filename, 'STDOUT_SINGLELINE', filename)
 
+        # Overwrite the contents of replica zero.
+        # The size of the file must be greater than or equal to the size recorded in
+        # the catalog so that the call to ichksum succeeds.
         with open(u1_path, 'wt') as f:
-            f.write('UNIX_1')
+            f.write('UNIX_1' * 20)
 
         u1_time = os.path.getmtime(u1_path)
         u2_time = os.path.getmtime(u2_path)
         u3_time = os.path.getmtime(u3_path)
 
         print('u1_time: '+str(u1_time))
-        print('u2_time: '+str(u3_time))
-        print('u3_time: '+str(u2_time))
+        print('u2_time: '+str(u2_time))
+        print('u3_time: '+str(u3_time))
 
         time.sleep(1)
 
-        self.admin.assert_icommand("ichksum -f " + filename, 'STDOUT_SINGLELINE', 'checksum')
+        self.admin.assert_icommand("ichksum -f " + filename, 'STDOUT_SINGLELINE', '    sha2:')
 
         u1_time2 = os.path.getmtime(u1_path)
         u2_time2 = os.path.getmtime(u2_path)
         u3_time2 = os.path.getmtime(u3_path)
 
         print('u1_time2: '+str(u1_time2))
-        print('u2_time2: '+str(u3_time2))
-        print('u3_time2: '+str(u2_time2))
+        print('u2_time2: '+str(u2_time2))
+        print('u3_time2: '+str(u3_time2))
 
+        # Show that computing/updating checksums does not affect the physical object.
         assert(u1_time == u1_time2 and u2_time == u2_time2 and u3_time == u3_time2)
-
-
 
     def test_num_repl_policy__ticket_2851(self):
         self.admin.assert_icommand('iadmin modresc demoResc context "num_repl=2"')
@@ -4138,11 +4139,11 @@ OUTPUT ruleExecOut
         self.admin.assert_icommand("irepl " + filename)
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
         # replicate overtop default resource
-        self.admin.assert_icommand("irepl " + filename)
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
         # replicate overtop test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
         # should not have a replica 3
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
         # local cleanup
@@ -4161,11 +4162,11 @@ OUTPUT ruleExecOut
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl " + filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
         # should not have a replica 4
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
@@ -4405,545 +4406,6 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand(['iadmin', 'modresc', 'unix2Resc', 'host', test.settings.HOSTNAME_2])
             self.admin.assert_icommand(['iadmin', 'modresc', 'unix3Resc', 'host', test.settings.HOSTNAME_3])
             self.admin.assert_icommand(['iadmin', 'rmresc', test_resc])
-
-@unittest.skipIf(False == test.settings.USE_MUNGEFS, "These tests require mungefs")
-class Test_Resource_Replication_With_Retry(ChunkyDevTest, ResourceSuite, unittest.TestCase):
-    def setUp(self):
-        irods_config = IrodsConfig()
-
-        with session.make_session_for_existing_admin() as admin_session:
-            self.munge_mount=tempfile.mkdtemp(prefix='munge_mount_')
-            self.munge_target=tempfile.mkdtemp(prefix='munge_target_')
-            assert_command('mungefs ' + self.munge_mount + ' -omodules=subdir,subdir=' + self.munge_target)
-
-            self.munge_resc = 'ufs1munge'
-            self.munge_passthru = 'pt1'
-            self.normal_vault = irods_config.irods_directory + '/vault2'
-
-            admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
-            admin_session.assert_icommand("iadmin mkresc demoResc replication", 'STDOUT_SINGLELINE', 'replication')
-            admin_session.assert_icommand('iadmin mkresc ' + self.munge_passthru + ' passthru', 'STDOUT_SINGLELINE', 'passthru')
-            admin_session.assert_icommand('iadmin mkresc pt2 passthru', 'STDOUT_SINGLELINE', 'passthru')
-            admin_session.assert_icommand('iadmin mkresc ' + self.munge_resc + ' unixfilesystem ' + test.settings.HOSTNAME_1 + ':' +
-                                          self.munge_mount, 'STDOUT_SINGLELINE', 'unixfilesystem')
-            admin_session.assert_icommand('iadmin mkresc ufs2 unixfilesystem ' + test.settings.HOSTNAME_2 + ':' +
-                                          self.normal_vault, 'STDOUT_SINGLELINE', 'unixfilesystem')
-            admin_session.assert_icommand('iadmin addchildtoresc ' + self.munge_passthru + ' ' + self.munge_resc)
-            admin_session.assert_icommand('iadmin addchildtoresc pt2 ufs2')
-            admin_session.assert_icommand('iadmin addchildtoresc demoResc ' + self.munge_passthru)
-            admin_session.assert_icommand('iadmin addchildtoresc demoResc pt2')
-
-            # Increase write on pt2 because could vote evenly with the 0.5 of pt1 due to locality of reference
-            admin_session.assert_icommand('iadmin modresc ' + self.munge_passthru + ' context "write=0.5"')
-            admin_session.assert_icommand('iadmin modresc pt2 context "write=3.0"')
-
-        # Get count of existing failures in the log
-        self.failure_message = 'Failed to replicate data object'
-        self.log_message_starting_location = lib.get_file_size_by_path(irods_config.server_log_path)
-
-        self.valid_scenarios = [
-            self.retry_scenario(1, 1, 1, self.make_context()),
-            self.retry_scenario(3, 1, 1, self.make_context('3')),
-            self.retry_scenario(1, 3, 1, self.make_context(delay='3')),
-            self.retry_scenario(1, 3, 1, self.make_context(delay='3')),
-            self.retry_scenario(3, 2, 2, self.make_context('3', '2', '2')),
-            self.retry_scenario(3, 2, 1.5, self.make_context('3', '2', '1.5'))
-            ]
-
-        self.invalid_scenarios = [
-            self.retry_scenario(1, 1, 1, self.make_context('-2')),
-            self.retry_scenario(1, 1, 1, self.make_context('2.0')),
-            self.retry_scenario(1, 1, 1, self.make_context('one')),
-            self.retry_scenario(1, 1, 1, self.make_context(delay='0')),
-            self.retry_scenario(1, 1, 1, self.make_context(delay='-2')),
-            self.retry_scenario(1, 1, 1, self.make_context(delay='2.0')),
-            self.retry_scenario(1, 1, 1, self.make_context(delay='one')),
-            self.retry_scenario(3, 2, 1, self.make_context('3', '2', '0')),
-            self.retry_scenario(3, 2, 1, self.make_context('3', '2', '0.5')),
-            self.retry_scenario(3, 2, 1, self.make_context('3', '2', '-2')),
-            self.retry_scenario(3, 2, 1, self.make_context('3', '2', 'one'))
-            ]
-        super(Test_Resource_Replication_With_Retry, self).setUp()
-
-    def tearDown(self):
-        super(Test_Resource_Replication_With_Retry, self).tearDown()
-
-        # unmount mungefs and destroy directories
-        assert_command(['fusermount', '-u', self.munge_mount])
-        shutil.rmtree(self.munge_mount, ignore_errors=True)
-        shutil.rmtree(self.munge_target, ignore_errors=True)
-        shutil.rmtree(self.normal_vault, ignore_errors=True)
-
-        with session.make_session_for_existing_admin() as admin_session:
-            admin_session.assert_icommand("iadmin rmchildfromresc demoResc " + self.munge_passthru)
-            admin_session.assert_icommand("iadmin rmchildfromresc demoResc pt2")
-            admin_session.assert_icommand("iadmin rmchildfromresc " + self.munge_passthru + ' ' + self.munge_resc)
-            admin_session.assert_icommand("iadmin rmchildfromresc pt2 ufs2")
-            admin_session.assert_icommand("iadmin rmresc " + self.munge_resc)
-            admin_session.assert_icommand("iadmin rmresc ufs2")
-            admin_session.assert_icommand("iadmin rmresc " + self.munge_passthru)
-            admin_session.assert_icommand("iadmin rmresc pt2")
-            admin_session.assert_icommand("iadmin rmresc demoResc")
-            admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
-
-    # Nested class for containing test case information
-    class retry_scenario(object):
-        def __init__(self, retries, delay, multiplier, context_string=None):
-            self.retries = retries
-            self.delay = delay
-            self.multiplier = multiplier
-            self.context_string = context_string
-
-        def munge_delay(self):
-            # No retries means no delay
-            if 0 == self.retries:
-                return 0
-
-            # Get total time over all retries
-            if self.multiplier == 1.0 or self.retries == 1:
-                # Since there is no multiplier, delay increases linearly
-                time_to_failure = self.delay * self.retries
-            else:
-                # Delay represented by geometric sequence
-                # Example for 3 retries:
-                #   First retry -> delay * multiplier^0
-                #   Second retry -> delay * multiplier^1
-                #   Third retry -> delay * multiplier^2
-                time_to_failure = 0
-                for i in range(0, self.retries): # range is non-inclusive at the top end because python
-                    time_to_failure += int(self.delay * pow(self.multiplier, i))
-
-            # Shave some time to ensure mungefsctl can restore filesystem for successful replication
-            return time_to_failure - 0.25
-
-    # Ensure that expected number of new failure messages appear in the log
-    def verify_new_failure_messages_in_log(self, expected_count, expected_message=None):
-        if not expected_message:
-            expected_message = self.failure_message
-
-        irods_config = IrodsConfig()
-        lib.delayAssert(
-            lambda: lib.log_message_occurrences_equals_count(
-                msg=expected_message,
-                count=expected_count,
-                server_log_path=IrodsConfig().server_log_path,
-                start_index=self.log_message_starting_location))
-        self.log_message_starting_location = lib.get_file_size_by_path(irods_config.server_log_path)
-
-    # Generate a context string for replication resource
-    @staticmethod
-    def make_context(retries=None, delay=None, multiplier=None):
-        context_string = ""
-        # Only generate for populated parameters
-        if retries:
-            context_string += 'retry_attempts={0};'.format(retries)
-        if delay:
-            context_string += 'first_retry_delay_in_seconds={0};'.format(delay)
-        if multiplier:
-            context_string += 'backoff_multiplier={0}'.format(multiplier)
-
-        # Empty string causes an error, so put none if using all defaults
-        if not context_string:
-            context_string = 'none=none'
-
-        return context_string
-
-    @staticmethod
-    def run_mungefsctl(operation, modifier=None):
-        mungefsctl_call = 'mungefsctl --operations ' + str(operation)
-        if modifier:
-            mungefsctl_call += ' ' + str(modifier)
-        assert_command(mungefsctl_call)
-
-    def run_rebalance_test(self, scenario, filename):
-        # Setup test and context string
-        filepath = lib.create_local_testfile(filename)
-        if scenario.context_string:
-            self.admin.assert_icommand('iadmin modresc demoResc context "{0}"'.format(scenario.context_string))
-
-        # Get wait time for mungefs to reset
-        wait_time = scenario.munge_delay()
-        self.assertTrue( wait_time > 0, msg='wait time for mungefs [{0}] <= 0'.format(wait_time))
-
-        # For each test, iput will fail to replicate; then we can run a rebalance
-        # Perform corrupt read (checksum) test
-        self.run_mungefsctl('read', '--corrupt_data')
-        self.admin.assert_icommand_fail(['iput', '-K', filepath], 'STDOUT_SINGLELINE', self.failure_message )
-        self.verify_new_failure_messages_in_log(scenario.retries + 1)
-        munge_thread = Timer(wait_time, self.run_mungefsctl, ['read'])
-        munge_thread.start()
-        self.admin.assert_icommand('iadmin modresc demoResc rebalance')
-        munge_thread.join()
-        self.admin.assert_icommand(['irm', '-f', filename])
-        self.verify_new_failure_messages_in_log(scenario.retries)
-
-        # Perform corrupt size test
-        self.run_mungefsctl('getattr', '--corrupt_size')
-        self.admin.assert_icommand_fail(['iput', '-K', filepath], 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(scenario.retries + 1)
-        munge_thread = Timer(wait_time, self.run_mungefsctl, ['getattr'])
-        munge_thread.start()
-        self.admin.assert_icommand('iadmin modresc demoResc rebalance')
-        munge_thread.join()
-        self.admin.assert_icommand(['irm', '-f', filename])
-        self.verify_new_failure_messages_in_log(scenario.retries)
-
-        # Cleanup
-        os.unlink(filepath)
-
-    def run_iput_test(self, scenario, filename):
-        # Setup test and context string
-        filepath = lib.create_local_testfile(filename)
-        if scenario.context_string:
-            self.admin.assert_icommand('iadmin modresc demoResc context "{0}"'.format(scenario.context_string))
-
-        # Get wait time for mungefs to reset
-        wait_time = scenario.munge_delay()
-        self.assertTrue( wait_time > 0, msg='wait time for mungefs [{0}] <= 0'.format(wait_time))
-
-        # Perform corrupt read (checksum) test
-        self.run_mungefsctl('read', '--corrupt_data')
-        munge_thread = Timer(wait_time, self.run_mungefsctl, ['read'])
-        munge_thread.start()
-        self.admin.assert_icommand(['iput', '-K', filepath])
-        munge_thread.join()
-        self.admin.assert_icommand(['irm', '-f', filename])
-        self.verify_new_failure_messages_in_log(scenario.retries)
-
-        # Perform corrupt size test
-        self.run_mungefsctl('getattr', '--corrupt_size')
-        munge_thread = Timer(wait_time, self.run_mungefsctl, ['getattr'])
-        munge_thread.start()
-        self.admin.assert_icommand(['iput', '-K', filepath])
-        munge_thread.join()
-        self.admin.assert_icommand(['irm', '-f', filename])
-        self.verify_new_failure_messages_in_log(scenario.retries)
-
-        # Cleanup
-        os.unlink(filepath)
-
-    # Helper function to recreate replication node to ensure empty context string
-    def reset_repl_resource(self):
-        self.admin.assert_icommand("iadmin rmchildfromresc demoResc " + self.munge_passthru)
-        self.admin.assert_icommand("iadmin rmchildfromresc demoResc pt2")
-        self.admin.assert_icommand("iadmin rmresc demoResc")
-        self.admin.assert_icommand("iadmin mkresc demoResc replication", 'STDOUT_SINGLELINE', 'replication')
-        self.admin.assert_icommand('iadmin addchildtoresc demoResc ' + self.munge_passthru)
-        self.admin.assert_icommand('iadmin addchildtoresc demoResc pt2')
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_iput_valid(self):
-        for scenario in self.valid_scenarios:
-            self.run_iput_test(scenario, 'test_repl_retry_iput_valid')
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_iput_invalid(self):
-        for scenario in self.invalid_scenarios:
-            self.run_iput_test(scenario, 'test_repl_retry_iput_invalid')
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_rebalance_valid(self):
-        for scenario in self.valid_scenarios:
-            self.run_rebalance_test(scenario, 'test_repl_retry_rebalance_valid')
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_rebalance_invalid(self):
-        for scenario in self.invalid_scenarios:
-            self.run_rebalance_test(scenario, 'test_repl_retry_rebalance_invalid')
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_iput_no_context(self):
-        self.reset_repl_resource()
-        self.run_iput_test(self.retry_scenario(1, 1, 1), 'test_repl_retry_iput_no_context')
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_rebalance_no_context(self):
-        self.reset_repl_resource()
-        self.run_rebalance_test(self.retry_scenario(1, 1, 1), 'test_repl_retry_rebalance_no_context')
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_iput_no_retries(self):
-        filename = "test_repl_retry_iput_no_retries"
-        filepath = lib.create_local_testfile(filename)
-        self.admin.assert_icommand('iadmin modresc demoResc context "{0}"'.format(self.make_context('0')))
-
-        # Perform corrupt read (checksum) test
-        self.run_mungefsctl('read', '--corrupt_data')
-        self.admin.assert_icommand_fail(['iput', '-K', filepath], 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(1)
-        self.run_mungefsctl('read')
-        self.admin.assert_icommand(['irm', '-f', filename])
-
-        # Perform corrupt size test
-        self.run_mungefsctl('getattr', '--corrupt_size')
-        self.admin.assert_icommand_fail(['iput', '-K', filepath], 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(1)
-        self.run_mungefsctl('getattr')
-
-        self.admin.assert_icommand(['irm', '-f', filename])
-        os.unlink(filepath)
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_rebalance_no_retries(self):
-        filename = "test_repl_retry_rebalance_no_retries"
-        filepath = lib.create_local_testfile(filename)
-        self.admin.assert_icommand('iadmin modresc demoResc context "{0}"'.format(self.make_context('0')))
-
-        # Perform corrupt read (checksum) test
-        self.run_mungefsctl('read', '--corrupt_data')
-        self.admin.assert_icommand_fail(['iput', '-K', filepath], 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(1)
-        self.admin.assert_icommand_fail('iadmin modresc demoResc rebalance', 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(1)
-        self.run_mungefsctl('read')
-        self.admin.assert_icommand(['irm', '-f', filename])
-
-        # Perform corrupt size test
-        self.run_mungefsctl('getattr', '--corrupt_size')
-        self.admin.assert_icommand_fail(['iput', '-K', filepath], 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(1)
-        self.admin.assert_icommand_fail('iadmin modresc demoResc rebalance', 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(1)
-        self.run_mungefsctl('getattr')
-
-        self.admin.assert_icommand(['irm', '-f', filename])
-        os.unlink(filepath)
-
-    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Reads server log")
-    def test_repl_retry_multiplier_overflow(self):
-        filename = "test_repl_retry_iput_large_multiplier"
-        filepath = lib.create_local_testfile(filename)
-        large_number = pow(2, 32)
-        scenario = self.retry_scenario(2, 1, large_number, self.make_context('2', '1', str(large_number)))
-        failure_message = 'bad numeric conversion'
-        self.admin.assert_icommand('iadmin modresc demoResc context "{0}"'.format(scenario.context_string))
-
-        self.run_mungefsctl('read', '--corrupt_data')
-        self.admin.assert_icommand_fail(['iput', '-K', filepath], 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(1, failure_message)
-        self.admin.assert_icommand_fail('iadmin modresc demoResc rebalance', 'STDOUT_SINGLELINE', self.failure_message)
-        self.verify_new_failure_messages_in_log(1, failure_message)
-        self.run_mungefsctl('read')
-
-        self.admin.assert_icommand(['irm', '-f', filename])
-        os.unlink(filepath)
-
-    def test_irepl_over_existing_bad_replica__ticket_1705(self):
-        # local setup
-        filename = "reploverwritebad.txt"
-        filepath = lib.create_local_testfile(filename)
-        doublefile = "doublefile.txt"
-        lib.execute_command("cat %s %s > %s" % (filename, filename, doublefile), use_unsafe_shell=True)
-        doublesize = str(os.stat(doublefile).st_size)
-
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")
-        self.admin.assert_icommand("iput " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-        # overwrite default repl with different data
-        self.admin.assert_icommand("iput -f %s %s" % (doublefile, filename))
-        # default resource should have replicated 2 clean copies
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " & " + filename])
-        # default resource should have replicated new double clean copies
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " " + doublesize + " ", " & " + filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " " + doublesize + " ", " & " + filename])
-        # test resource should not have doublesize file
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 " + self.testresc, " " + doublesize + " ", "  " + filename])
-        # replicate back onto test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
-        # test resource should have new clean doublesize file
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 " + self.testresc, " " + doublesize + " ", " & " + filename])
-        # should not have a replica 3
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
-
-        # local cleanup
-        os.remove(filepath)
-
-    def test_irepl_over_existing_second_replica__ticket_1705(self):
-        # local setup
-        filename = "secondreplicatest.txt"
-        filepath = lib.create_local_testfile(filename)
-
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")
-        self.admin.assert_icommand("iput -R " + self.testresc + " " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-        # replicate to default resource (default resource is replication)
-        self.admin.assert_icommand("irepl " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-        # replicate overtop default resource (default resource is replication)
-        self.admin.assert_icommand("irepl " + filename)
-        # should not have a replica 3
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
-        # replicate overtop test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
-        # should not have a replica 3
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
-
-        # local cleanup
-        os.remove(filepath)
-
-    def test_irepl_over_existing_third_replica__ticket_1705(self):
-        # local setup
-        filename = "thirdreplicatest.txt"
-        filepath = lib.create_local_testfile(filename)
-        hostname = lib.get_hostname()
-        hostuser = getpass.getuser()
-
-        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/%s/thirdrescVault" % (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")
-        # put to default resource (creates 2 replicas, 0 and 1)
-        self.admin.assert_icommand("iput " + filename)
-        # replicate to test resource (creates replica 2)
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
-        # replicate to third resource (creates replica 3)
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)
-        self.admin.assert_icommand("irepl " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-        # should not have a replica 4
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
-        # should not have a replica 5
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
-        self.admin.assert_icommand("irm -f " + filename)
-        self.admin.assert_icommand("iadmin rmresc thirdresc")
-
-        # local cleanup
-        os.remove(filepath)
-
-    def test_irepl_update_replicas(self):
-        # local setup
-        filename = "updatereplicasfile.txt"
-        filepath = lib.create_local_testfile(filename)
-        hostname = lib.get_hostname()
-        hostuser = getpass.getuser()
-        doublefile = "doublefile.txt"
-        lib.execute_command("cat %s %s > %s" % (filename, filename, doublefile), use_unsafe_shell=True)
-        doublesize = str(os.stat(doublefile).st_size)
-
-        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/%s/thirdrescVault" %
-                                           (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")
-        self.admin.assert_icommand("iadmin mkresc fourthresc unixfilesystem %s:/tmp/%s/fourthrescVault" %
-                                           (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")
-        # put to default resource (creates two replicas, 0 and 1)
-        self.admin.assert_icommand("iput " + filename)
-        # replicate to test resource
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
-        # replicate to third resource
-        self.admin.assert_icommand("irepl -R thirdresc " + filename)
-        # replicate to fourth resource
-        self.admin.assert_icommand("irepl -R fourthresc " + filename)
-        # repave overtop test resource
-        self.admin.assert_icommand("iput -f -R " + self.testresc + " " + doublefile + " " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-
-        # should have dirty copies
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " & " + filename])
-        # should have a clean copy
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", " & " + filename])
-        # should have dirty copies
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
-
-        self.admin.assert_icommand("irepl -a " + filename)
-
-        # should have dirty copies
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " & " + filename])
-        # should have a clean copy
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", " & " + filename])
-        # should have a dirty copy
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
-        # should have a clean copy
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
-
-        self.admin.assert_icommand("irepl -aU " + filename)
-
-        # should have clean copies
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " & " + filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", " & " + filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
-
-        self.admin.assert_icommand("irm -f " + filename)
-        self.admin.assert_icommand("iadmin rmresc thirdresc")
-        self.admin.assert_icommand("iadmin rmresc fourthresc")
-
-        # local cleanup
-        os.remove(filepath)
-        os.remove(doublefile)
-
-    def test_irm_specific_replica(self):
-        # should be listed 2x
-        self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', [" 0 ", " & " + self.testfile])
-        self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', [" 1 ", " & " + self.testfile])
-
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + self.testfile)
-        # should be listed a third time
-        self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', [" 2 ", " & " + self.testfile])
-        # Remove one of the original replicas
-        self.admin.assert_icommand("irm -n 1 " + self.testfile, 'STDOUT', 'deprecated')
-        # replicas 0 and 2 should be there (replica 0 goes to ufs2)
-        self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["0 ", "ufs2", self.testfile])
-        self.admin.assert_icommand("ils -L " + self.testfile, 'STDOUT_SINGLELINE', ["2 " + self.testresc, self.testfile])
-        # replica 1 should be gone
-        self.admin.assert_icommand_fail("ils -L " + self.testfile, 'STDOUT_SINGLELINE',
-                                                ["1 ", self.munge_resc, self.testfile])
-        # replica should not be in trash
-        trashpath = "/" + self.admin.zone_name + "/trash/home/" + self.admin.username + "/" + self.admin._session_id
-        self.admin.assert_icommand_fail("ils -L " + trashpath + "/" + self.testfile, 'STDOUT_SINGLELINE',
-                                                ["1 ", self.munge_resc, self.testfile])
-
-    def test_local_iput_with_force_and_destination_resource__ticket_1706(self):
-        # local setup
-        filename = "iputwithforceanddestination.txt"
-        filepath = lib.create_local_testfile(filename)
-        doublefile = "doublefile.txt"
-        lib.execute_command("cat %s %s > %s" % (filename, filename, doublefile), use_unsafe_shell=True)
-        doublesize = str(os.stat(doublefile).st_size)
-
-        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")
-        # put to default resource creates 2 replicas
-        self.admin.assert_icommand("iput " + filename)
-        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)
-        # overwrite test repl with different data
-        self.admin.assert_icommand("iput -f -R %s %s %s" % (self.testresc, doublefile, filename))
-        # default resource should have dirty copies
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " " + filename])
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " " + filename])
-        # default resource should not have any doublesize files
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " " + doublesize + " ", " " + filename])
-        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " " + doublesize + " ", " " + filename])
-        # targeted resource should have new double clean copy
-        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", " " + doublesize + " ", "& " + filename])
-
-        # local cleanup
-        os.remove(filepath)
-        os.remove(doublefile)
-
-    @unittest.skip("no support for non-compound resources")
-    def test_iget_with_purgec(self):
-        pass
-
-    @unittest.skip("no support for non-compound resources")
-    def test_iput_with_purgec(self):
-        pass
-
-    @unittest.skip("no support for non-compound resources")
-    def test_irepl_with_purgec(self):
-        pass
-
-    @unittest.skip("EMPTY_RESC_PATH - no vault path for coordinating resources")
-    def test_ireg_as_rodsuser_in_vault(self):
-        pass
 
 class Test_Resource_MultiLayered(ChunkyDevTest, ResourceSuite, unittest.TestCase):
 
