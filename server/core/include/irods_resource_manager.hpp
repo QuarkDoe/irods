@@ -8,24 +8,20 @@
 
 #include <functional>
 
-namespace irods {
+namespace irods
+{
+    extern const std::string EMPTY_RESC_HOST;
+    extern const std::string EMPTY_RESC_PATH;
 
-// =-=-=-=-=-=-=-
-//
-    const std::string EMPTY_RESC_HOST( "EMPTY_RESC_HOST" );
-    const std::string EMPTY_RESC_PATH( "EMPTY_RESC_PATH" );
+    // =-=-=-=-=-=-=-
+    /// @brief definition of the resource interface
+    extern const std::string RESOURCE_INTERFACE;
 
-
-
-// =-=-=-=-=-=-=-
-/// @brief definition of the resource interface
-    const std::string RESOURCE_INTERFACE( "irods_resource_interface" );
-
-// =-=-=-=-=-=-=-
-/// @brief special resource for local file system operations only
-    const std::string LOCAL_USE_ONLY_RESOURCE( "LOCAL_USE_ONLY_RESOURCE" );
-    const std::string LOCAL_USE_ONLY_RESOURCE_VAULT( "/var/lib/irods/LOCAL_USE_ONLY_RESOURCE_VAULT" );
-    const std::string LOCAL_USE_ONLY_RESOURCE_TYPE( "unixfilesystem" );
+    // =-=-=-=-=-=-=-
+    /// @brief special resource for local file system operations only
+    extern const std::string LOCAL_USE_ONLY_RESOURCE;
+    extern const std::string LOCAL_USE_ONLY_RESOURCE_VAULT;
+    extern const std::string LOCAL_USE_ONLY_RESOURCE_TYPE;
 
     class resource_manager {
         public:
@@ -74,9 +70,20 @@ namespace irods {
             /// @brief create a list of resources who do not have parents ( roots )
             error get_root_resources( std::vector< std::string >& );
 
-            // =-=-=-=-=-=-=-
-            /// @brief create a partial hier string for a given resource to the root
+            /// \brief create a partial hier string for a given resource to the root
             error get_hier_to_root_for_resc( const std::string&, std::string& );
+
+            /// \brief create a partial hier string for a given resource to the root
+            ///
+            /// \param[in] _resource_name
+            ///
+            /// \returns std::string
+            /// \retval resource hierarchy from provided resource name to root resource
+            ///
+            /// \throws irods::exception
+            ///
+            /// \since 4.2.9
+            std::string get_hier_to_root_for_resc(std::string_view _resource_name);
 
             // =-=-=-=-=-=-=-
             /// @brief groups decedent leafs by child
@@ -104,9 +111,31 @@ namespace irods {
             /// @brief get the resc id of the leaf resource in the hierarchy
             error hier_to_leaf_id( const std::string&, rodsLong_t& );
 
+            /// \brief get the resc id of the leaf resource in the hierarchy
+            ///
+            /// \param[in] _hierarchy
+            ///
+            /// \retval leaf resource ID for given resource hierarchy
+            ///
+            /// \throws irods::exception
+            ///
+            /// \since 4.2.9
+            rodsLong_t hier_to_leaf_id(std::string_view _hierarchy);
+
             // =-=-=-=-=-=-=-
             /// @brief get the resc hier of the resource given an id
             error leaf_id_to_hier( const rodsLong_t&, std::string& );
+
+            /// \brief get the resource hierarchy string from provided leaf resource ID
+            ///
+            /// \param[in] _leaf_resource_id
+            ///
+            /// \retval resource hierarchy for given leaf resource ID
+            ///
+            /// \throws irods::exception
+            ///
+            /// \since 4.2.9
+            std::string leaf_id_to_hier(const rodsLong_t _leaf_resource_id);
 
             // =-=-=-=-=-=-=-
             /// @brief get the resc name of the resource given an id
@@ -115,6 +144,28 @@ namespace irods {
             // =-=-=-=-=-=-=-
             /// @brief get the resc name of the resource given an id as a string
             error resc_id_to_name( const std::string&, std::string& );
+
+            /// \brief get the resc name of the resource given an id
+            ///
+            /// \param[in] _id
+            ///
+            /// \retval resource name for given resource id
+            ///
+            /// \throws irods::exception
+            ///
+            /// \since 4.2.9
+            std::string resc_id_to_name(const rodsLong_t& _id);
+
+            /// \brief get the resc name of the resource given an id as a string
+            ///
+            /// \param[in] _id
+            ///
+            /// \retval resource name for given resource id
+            ///
+            /// \throws irods::exception
+            ///
+            /// \since 4.2.9
+            std::string resc_id_to_name(std::string_view _id);
 
             // =-=-=-=-=-=-=-
             /// @brief check whether the specified resource name is a coordinating resource
@@ -244,8 +295,6 @@ namespace irods {
             std::vector< std::vector< pdmo_type > > maintenance_operations_;
 
     }; // class resource_manager
-
-}; // namespace irods
-
+} // namespace irods
 
 #endif // __IRODS_RESOURCE_MANAGER_HPP__

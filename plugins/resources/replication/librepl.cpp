@@ -30,6 +30,7 @@
 #include "irods_random.hpp"
 #include "irods_exception.hpp"
 #include "rsGenQuery.hpp"
+#include "key_value_proxy.hpp"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -40,6 +41,8 @@
 #include <map>
 #include <list>
 #include <boost/lexical_cast.hpp>
+
+#include "fmt/format.h"
 
 // =-=-=-=-=-=-=-
 // system includes
@@ -217,16 +220,34 @@ irods::error get_selected_hierarchy(
     irods::hierarchy_parser selected_parser{};
     bool resc_hier_in_keyword{};
     irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-    if (file_obj->l1_desc_idx() > 0) {
-        const auto hier_str{getValByKey(&L1desc[file_obj->l1_desc_idx()].dataObjInp->condInput, RESC_HIER_STR_KW)};
-        if (!hier_str) {
-            return ERROR(SYS_INTERNAL_NULL_INPUT_ERR,
-                         (boost::format(
-                          "[%s] - No hierarchy string found in keywords for file object.") %
-                          __FUNCTION__).str().c_str());
+
+    if (!resc_hier_in_keyword) {
+        auto cond_input = irods::experimental::make_key_value_proxy((KeyValPair&)file_obj->cond_input());
+        if (cond_input.contains(SELECTED_HIERARCHY_KW)) {
+            const auto hier_str = cond_input.at(SELECTED_HIERARCHY_KW).value();
+            if (hier_str.empty()) {
+                return ERROR(SYS_INTERNAL_NULL_INPUT_ERR,
+                             (boost::format(
+                              "[%s] - No hierarchy string found in keywords for file object.") %
+                              __FUNCTION__).str().c_str());
+            }
+            selected_parser.set_string(hier_str.data());
+            resc_hier_in_keyword = selected_parser.resc_in_hier(name);
         }
-        selected_parser.set_string(hier_str);
-        resc_hier_in_keyword = selected_parser.resc_in_hier(name);
+    }
+
+    if (!resc_hier_in_keyword) {
+        if (file_obj->l1_desc_idx() > 0) {
+            const auto hier_str{getValByKey(&L1desc[file_obj->l1_desc_idx()].dataObjInp->condInput, RESC_HIER_STR_KW)};
+            if (!hier_str) {
+                return ERROR(SYS_INTERNAL_NULL_INPUT_ERR,
+                             (boost::format(
+                              "[%s] - No hierarchy string found in keywords for file object.") %
+                              __FUNCTION__).str().c_str());
+            }
+            selected_parser.set_string(hier_str);
+            resc_hier_in_keyword = selected_parser.resc_in_hier(name);
+        }
     }
 
     // Get resc hier from the file object directly if not in RESC_HIER_STR_KW
@@ -1411,9 +1432,9 @@ std::pair<redirect_map_t, irods::error> resolve_children(
         const auto ret{entry.second.second->call<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
                         ctx.comm(), irods::RESOURCE_OP_RESOLVE_RESC_HIER, ctx.fco(), &operation, &local_hostname, &parser, &out_vote)};
         if (!ret.ok() && CHILD_NOT_FOUND != ret.code()) {
-            rodsLog(LOG_WARNING,
-                "[%s] - failed resolving hierarchy for [%s]",
-                __FUNCTION__, entry.first.c_str());
+            irods::log(LOG_WARNING, fmt::format(
+                "[{}:{}] - failed resolving hierarchy for [{}]; msg:[{}],ec:[{}]",
+                __FUNCTION__, __LINE__, entry.first, ret.result(), ret.code()));
             last_err = ret;
         }
         else {
@@ -1492,7 +1513,7 @@ irods::error repl_file_resolve_hierarchy(
         return ERROR(SYS_INVALID_INPUT_PARAM,
                      (boost::format(
                       "[%s]: null parameters passed to redirect") %
-                      __FUNCTION__).str().c_str() ); 
+                      __FUNCTION__).str().c_str() );
     }
 
     // If child list property exists, use previously selected parser for the vote

@@ -1,21 +1,22 @@
-// =-=-=-=-=-=-=-
-#include "irods_file_object.hpp"
-#include "irods_resource_manager.hpp"
-#include "irods_hierarchy_parser.hpp"
-#include "irods_log.hpp"
-#include "irods_stacktrace.hpp"
-#include "irods_hierarchy_parser.hpp"
-#include "irods_resource_backport.hpp"
-
-// =-=-=-=-=-=-=-
-// irods includes
 #include "miscServerFunct.hpp"
 #include "dataObjOpr.hpp"
 #include "objDesc.hpp"
 
-// =-=-=-=-=-=-=-
-// boost includes
-#include <boost/asio/ip/host_name.hpp>
+#include "irods_file_object.hpp"
+#include "irods_hierarchy_parser.hpp"
+#include "irods_log.hpp"
+#include "irods_resource_backport.hpp"
+#include "irods_resource_manager.hpp"
+#include "irods_stacktrace.hpp"
+
+#define IRODS_FILESYSTEM_ENABLE_SERVER_SIDE_API
+#include "filesystem.hpp"
+
+#define IRODS_REPLICA_ENABLE_SERVER_SIDE_API
+#include "replica_proxy.hpp"
+#include "data_object_proxy.hpp"
+
+#include "fmt/format.h"
 
 namespace irods {
 // =-=-=-=-=-=-=-
@@ -37,6 +38,8 @@ namespace irods {
         // =-=-=-=-=-=-=-
         // explicit initialization
         comm_           = _rhs.comm_;
+        data_id_        = _rhs.data_id_;
+        coll_id_        = _rhs.coll_id_;
         logical_path_   = _rhs.logical_path_;
         data_type_      = _rhs.data_type_;
         file_descriptor_ = _rhs.file_descriptor_;
@@ -104,11 +107,13 @@ namespace irods {
 
 // from dataObjInfo
     file_object::file_object(
-        rsComm_t*            _rsComm,
-        const dataObjInfo_t* _dataObjInfo ) {
-
+        RsComm*            _rsComm,
+        const DataObjInfo* _dataObjInfo)
+    {
         data_type_      = _dataObjInfo->dataType;
         comm_           = _rsComm;
+        data_id_        = _dataObjInfo->dataId;
+        coll_id_        = _dataObjInfo->collId;
         logical_path_   = _dataObjInfo->objPath;
         physical_path_  = _dataObjInfo->filePath;
         resc_hier_      = _dataObjInfo->rescHier;
@@ -117,15 +122,9 @@ namespace irods {
         repl_requested_ = _dataObjInfo->replNum;
         replicas_.clear();
         replKeyVal( &_dataObjInfo->condInput, &cond_input_ );
-        l1_desc_idx_ = getL1descIndexByDataObjInfo( _dataObjInfo );
         size_ = _dataObjInfo->dataSize;
-        if ( l1_desc_idx_ != -1 ) {
-            int l3descInx = L1desc[ l1_desc_idx_ ].l3descInx;
-            file_descriptor_ = FileDesc[ l3descInx ].fd;
-        }
-        else {
-            file_descriptor_ = -1;
-        }
+        l1_desc_idx_ = -1;
+        file_descriptor_ = -1;
     }
 
 // =-=-=-=-=-=-=-
@@ -143,6 +142,8 @@ namespace irods {
         data_object::operator=( _rhs );
 
         comm_           = _rhs.comm_;
+        data_id_        = _rhs.data_id_;
+        coll_id_        = _rhs.coll_id_;
         logical_path_   = _rhs.logical_path_;
         data_type_      = _rhs.data_type_;
         file_descriptor_ = _rhs.file_descriptor_;
@@ -266,13 +267,37 @@ namespace irods {
 
     } // get_re_vars
 
+    auto file_object::get_replica(const int _replica_number) -> std::optional<std::reference_wrapper<physical_object>>
+    {
+        auto itr = std::find_if(
+            std::begin(replicas_), std::end(replicas_),
+            [&_replica_number](const auto& _r) { return _replica_number == _r.repl_num(); }
+        );
+
+        return std::cend(replicas_) == itr ? std::nullopt : std::make_optional(std::ref(*itr));
+    } // get_replica
+
+    auto file_object::get_replica(std::string_view _hierarchy) -> std::optional<std::reference_wrapper<physical_object>>
+    {
+        auto itr = std::find_if(
+            std::begin(replicas_), std::end(replicas_),
+            [&_hierarchy](const auto& _r) { return _hierarchy == _r.resc_hier(); }
+        );
+
+        return std::cend(replicas_) == itr ? std::nullopt : std::make_optional(std::ref(*itr));
+    } // get_replica
+
 // =-=-=-=-=-=-=-
 // static factory to create file_object from dataObjInfo linked list
     error file_object_factory( rsComm_t*        _comm,
                                dataObjInp_t*    _data_obj_inp,
                                file_object_ptr  _file_obj,
-                               dataObjInfo_t**  _data_obj_info ) {
-        // =-=-=-=-=-=-=-
+                               dataObjInfo_t**  _data_obj_info)
+    {
+        if (!_comm || !_data_obj_inp) {
+            return ERROR(SYS_INTERNAL_NULL_INPUT_ERR, "some inputs were null");
+        }
+
         // start populating file_object
         _file_obj->comm( _comm );
         _file_obj->logical_path( _data_obj_inp->objPath );
@@ -293,10 +318,10 @@ namespace irods {
                 _file_obj->repl_requested(std::stoi(repl_num));
             }
             catch (const std::invalid_argument& e) {
-                return ERROR(USER_INVALID_REPLICA_INPUT, "invalid replica number argument");
+                return ERROR(USER_INVALID_REPLICA_INPUT, fmt::format("invalid replica number argument:[{}]", repl_num));
             }
             catch (const std::out_of_range& e) {
-                return ERROR(USER_INVALID_REPLICA_INPUT, "replica number is out of range");
+                return ERROR(USER_INVALID_REPLICA_INPUT, fmt::format("replica number is out of range:[{}]", repl_num));
             }
         }
 
@@ -331,6 +356,15 @@ namespace irods {
         }
 
         _file_obj->resc_hier( head_ptr->rescHier );
+        _file_obj->data_id(head_ptr->dataId);
+        _file_obj->coll_id(head_ptr->collId);
+
+        // If the repl_requested value is less than 0, this means a REPL_NUM_KW was not
+        // provided and so finding a specific replica number is not of concern. If the
+        // REPL_NUM_KW was provided, we need to make sure that the replica exists before
+        // we return the information as it is an error if the requested replica number
+        // does not exist.
+        bool found_replica_number = _file_obj->repl_requested() < 0 ? true : false;
 
         // =-=-=-=-=-=-=-
         // iterate over the linked list and populate
@@ -338,52 +372,63 @@ namespace irods {
         dataObjInfo_t* info_ptr = head_ptr;
         std::vector< physical_object > objects;
         while ( info_ptr ) {
-            physical_object obj;
-
-            obj.replica_status( info_ptr->replStatus );
-            obj.repl_num( info_ptr->replNum );
-            obj.map_id( info_ptr->dataMapId );
-            if(info_ptr->dataSize > 0) {
-                obj.size( info_ptr->dataSize );
+            if (!found_replica_number && info_ptr->replNum == _file_obj->repl_requested()) {
+                found_replica_number = true;
             }
-            else {
-                obj.size( _data_obj_inp->dataSize );
+
+            objects.push_back(irods::physical_object{*info_ptr});
+
+            if (info_ptr->dataSize <= 0) {
+                auto& obj = objects.back();
+                obj.size(_data_obj_inp->dataSize);
             }
-            obj.id( info_ptr->dataId );
-            obj.coll_id( info_ptr->collId );
-            obj.name( info_ptr->objPath );
-            obj.version( info_ptr->version );
-            obj.type_name( info_ptr->dataType );
-            obj.resc_name( info_ptr->rescName );
-            obj.path( info_ptr->filePath );
-            obj.owner_name( info_ptr->dataOwnerName );
-            obj.owner_zone( info_ptr->dataOwnerZone );
-            obj.status( info_ptr->statusString );
-            obj.checksum( info_ptr->chksum );
-            obj.expiry_ts( info_ptr->dataExpiry );
-            obj.mode( info_ptr->dataMode );
-            obj.r_comment( info_ptr->dataComments );
-            obj.create_ts( info_ptr->dataCreate );
-            obj.modify_ts( info_ptr->dataModify );
 
-            obj.resc_hier( info_ptr->rescHier );
-            obj.resc_id( info_ptr->rescId );
-
-            objects.push_back( obj );
             info_ptr = info_ptr->next;
-
         } // while
+
+        if (!found_replica_number) {
+            freeAllDataObjInfo(head_ptr);
+            return ERROR(SYS_REPLICA_DOES_NOT_EXIST, "replica does not exist");
+        }
 
         _file_obj->replicas( objects );
 
         //delete head_ptr->rescInfo;
         //free( head_ptr );
-        //freeAllDataObjInfo( head_ptr );
         if (_data_obj_info) {
             *_data_obj_info = head_ptr;
+        }
+        else {
+            freeAllDataObjInfo( head_ptr );
         }
         return SUCCESS();
 
     } // file_object_factory
 
+    auto file_object_factory(RsComm& _comm, const rodsLong_t _data_id) -> irods::file_object_ptr
+    {
+        namespace id = irods::experimental::data_object;
+
+        auto [data_obj, obj_lm] = id::make_data_object_proxy(_comm, _data_id);
+
+        irods::file_object_ptr obj{new irods::file_object{&_comm, data_obj.get()}};
+
+        std::vector<physical_object> objects;
+
+        for (const auto& r : data_obj.replicas()) {
+            objects.push_back(irods::physical_object{*r.get()});
+        }
+
+        obj->replicas( objects );
+
+        return obj;
+    } // file_object_factory
+
+    auto hierarchy_has_replica(const irods::file_object_ptr _obj, std::string_view _hierarchy) -> bool
+    {
+        return std::any_of(std::cbegin(_obj->replicas()), std::cend(_obj->replicas()),
+            [&_hierarchy](const irods::physical_object& _r) {
+                return _r.resc_hier() == _hierarchy;
+            });
+    } // hierarchy_has_replica
 } // namespace irods

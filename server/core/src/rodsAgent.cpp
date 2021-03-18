@@ -1,17 +1,9 @@
-/*** Copyright (c), The Regents of the University of California            ***
- *** For more information please refer to files in the COPYRIGHT directory ***/
-
-/* rodsAgent.cpp - The main code for rodsAgent
- */
-
-#include <syslog.h>
 #include "rodsAgent.hpp"
 #include "reconstants.hpp"
 #include "rsApiHandler.hpp"
 #include "icatHighLevelRoutines.hpp"
 #include "miscServerFunct.hpp"
 #include "irods_socket_information.hpp"
-// =-=-=-=-=-=-=-
 #include "irods_dynamic_cast.hpp"
 #include "irods_signal.hpp"
 #include "irods_client_server_negotiation.hpp"
@@ -33,15 +25,19 @@
 #include "procLog.h"
 #include "initServer.hpp"
 #include "replica_access_table.hpp"
-
 #include "sockCommNetworkInterface.hpp"
 #include "sslSockComm.h"
+#include "server_utilities.hpp"
+#include "version.hpp"
 
-#include "sys/socket.h"
-#include "sys/un.h"
-#include "sys/wait.h"
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <syslog.h>
 
+#include <cstring>
 #include <memory>
+#include <sstream>
 
 namespace ix = irods::experimental;
 
@@ -194,6 +190,8 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
     int status{};
     rsComm_t rsComm;
 
+    rodsLog(LOG_NOTICE, "Initializing agent factory ...");
+
     signal( SIGINT, irodsAgentSignalExit );
     signal( SIGHUP, irodsAgentSignalExit );
     signal( SIGTERM, irodsAgentSignalExit );
@@ -274,7 +272,7 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
             rmProcLog( reaped_pid );
 
             rodsLog(LOG_DEBUG, "Removing agent PID [%d] from replica access table ...", reaped_pid);
-            ix::replica_access_table::instance().erase_pid(reaped_pid);
+            ix::replica_access_table::erase_pid(reaped_pid);
         }
 
         fd_set read_socket;
@@ -369,6 +367,19 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
                 status = receiveDataFromServer( conn_tmp_socket );
 
                 irods::server_properties::instance().capture();
+                irods::parse_and_store_hosts_configuration_file_as_json();
+
+                using key_path_t = irods::configuration_parser::key_path_t;
+
+                // Update the eviction age for DNS cache entries.
+                irods::set_server_property(
+                    key_path_t{irods::CFG_ADVANCED_SETTINGS_KW, irods::CFG_DNS_CACHE_KW, irods::CFG_EVICTION_AGE_IN_SECONDS_KW},
+                    irods::get_dns_cache_eviction_age());
+
+                // Update the eviction age for hostname cache entries.
+                irods::set_server_property(
+                    key_path_t{irods::CFG_ADVANCED_SETTINGS_KW, irods::CFG_HOSTNAME_CACHE_KW, irods::CFG_EVICTION_AGE_IN_SECONDS_KW},
+                    irods::get_hostname_cache_eviction_age());
 
                 irods::error ret2 = setRECacheSaltFromEnv();
                 if ( !ret2.ok() ) {
@@ -411,7 +422,7 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
     memset( &rsComm, 0, sizeof( rsComm ) );
     rsComm.thread_ctx = ( thread_context* )malloc( sizeof( thread_context ) );
 
-    status = initRsCommWithStartupPack( &rsComm, NULL );
+    status = initRsCommWithStartupPack( &rsComm, nullptr );
 
     // =-=-=-=-=-=-=-
     // manufacture a network object for comms
@@ -422,7 +433,7 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
     }
 
     if ( status < 0 ) {
-        sendVersion( net_obj, status, 0, NULL, 0 );
+        sendVersion( net_obj, status, 0, nullptr, 0 );
         cleanupAndExit( status );
     }
 
@@ -433,7 +444,7 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
 
     if ( status < 0 ) {
         rodsLog( LOG_ERROR, "agentMain :: getRodsEnv failed" );
-        sendVersion( net_obj, SYS_AGENT_INIT_ERR, 0, NULL, 0 );
+        sendVersion( net_obj, SYS_AGENT_INIT_ERR, 0, nullptr, 0 );
         cleanupAndExit( status );
     }
 
@@ -547,6 +558,7 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
     }
 
     new_net_obj->to_server( &rsComm );
+    // TODO: move this into an at_scope_exit
     cleanup();
     free( rsComm.thread_ctx );
     free( rsComm.auth_scheme );
@@ -556,23 +568,20 @@ runIrodsAgentFactory( sockaddr_un agent_addr ) {
     return status;
 }
 
-static void set_rule_engine_globals(
-    rsComm_t* _comm ) {
-
+static void set_rule_engine_globals(rsComm_t* _comm)
+{
     irods::set_server_property<std::string>(irods::CLIENT_USER_NAME_KW, _comm->clientUser.userName);
     irods::set_server_property<std::string>(irods::CLIENT_USER_ZONE_KW, _comm->clientUser.rodsZone);
     irods::set_server_property<int>(irods::CLIENT_USER_PRIV_KW, _comm->clientUser.authInfo.authFlag);
     irods::set_server_property<std::string>(irods::PROXY_USER_NAME_KW, _comm->proxyUser.userName);
     irods::set_server_property<std::string>(irods::PROXY_USER_ZONE_KW, _comm->proxyUser.rodsZone);
     irods::set_server_property<int>(irods::PROXY_USER_PRIV_KW, _comm->clientUser.authInfo.authFlag);
-
 } // set_rule_engine_globals
 
-int agentMain(
-    rsComm_t *rsComm ) {
-    if ( !rsComm ) {
+int agentMain(rsComm_t *rsComm)
+{
+    if (!rsComm) {
         return SYS_INTERNAL_NULL_INPUT_ERR;
-
     }
 
     int status = 0;

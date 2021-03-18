@@ -4,6 +4,8 @@
 #include "irods_repl_retry.hpp"
 #include "irods_stacktrace.hpp"
 
+#include "fmt/format.h"
+
 namespace irods {
 
     create_write_replicator::create_write_replicator(
@@ -54,18 +56,24 @@ namespace irods {
                     addKeyVal( &dataObjInp.condInput, DEST_RESC_NAME_KW, root_resource_.c_str() );
                     addKeyVal( &dataObjInp.condInput, IN_PDMO_KW, sub_hier.c_str() );
 
-                    try { 
+                    try {
                         const auto status = data_obj_repl_with_retry( _ctx, dataObjInp );
-                        char* sys_error = NULL;
-                        auto rods_error = rodsErrorName( status, &sys_error );
-                        result = ASSERT_ERROR( status >= 0, status, "Failed to replicate the data object: \"%s\" from resource: \"%s\" "
-                                               "to sibling: \"%s\" - %s %s.", object.logical_path().c_str(), child_.c_str(),
-                                               hierarchy_string.c_str(), rods_error, sys_error );
-                        free( sys_error );
+                        if (status < 0) {
+                            // Replications which failed simply because they were not allowed need not be reported.
+                            // Such failures should be fixed with a rebalance or some tree surgery.
+                            if (SYS_NOT_ALLOWED == status) {
+                                continue;
+                            }
 
-                        // cache last error to return, log it and add it to the
-                        // client side error stack
-                        if ( !result.ok() ) {
+                            char* sys_error = NULL;
+                            auto rods_error = rodsErrorName( status, &sys_error );
+                            result = ERROR(status, fmt::format(
+                                "Failed to replicate the data object: \"{}\" from resource: \"{}\" to sibling: \"{}\" - {} {}.",
+                                object.logical_path(), child_, hierarchy_string, rods_error, sys_error));
+                            free( sys_error );
+
+                            // cache last error to return, log it and add it to the
+                            // client side error stack
                             last_error = result;
                             irods::log( result );
                             addRErrorMsg(

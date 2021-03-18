@@ -12,6 +12,7 @@ from .resource_suite import ResourceBase
 from ..configuration import IrodsConfig
 from .rule_texts_for_tests import rule_texts
 from .. import lib
+from . import session
 
 class Test_ImetaSet(ResourceBase, unittest.TestCase):
 
@@ -287,21 +288,6 @@ class Test_ImetaSet(ResourceBase, unittest.TestCase):
         self.admin.assert_icommand(['imeta', 'mod', '-d', self.testfile, 'a2', 'v2',       'n:a3', 'v:v3', 'u:u3'])
         self.check_avu_data_obj(self.testfile, 'a3', 'v3', 'u3')
 
-    def test_imeta_duplicate_attr_3788(self):
-        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a', 'v', 'u'])
-        self.admin.assert_icommand('imeta mod -d ' + self.testfile + 'a v u n:newa1 n:newa2', 'STDOUT_SINGLELINE', 'Error: New attribute specified more than once')
-        self.check_avu_data_obj(self.testfile, 'a', 'v', 'u')
-
-    def test_imeta_duplicate_value_3788(self):
-        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a', 'v', 'u'])
-        self.admin.assert_icommand('imeta mod -d ' + self.testfile + 'a v u v:newa1 v:newa2', 'STDOUT_SINGLELINE', 'Error: New value specified more than once')
-        self.check_avu_data_obj(self.testfile, 'a', 'v', 'u')
-
-    def test_imeta_duplicate_unit_3788(self):
-        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a', 'v', 'u'])
-        self.admin.assert_icommand('imeta mod -d ' + self.testfile + 'a v u u:newa1 u:newa2', 'STDOUT_SINGLELINE', 'Error: New unit specified more than once')
-        self.check_avu_data_obj(self.testfile, 'a', 'v', 'u')
-
     @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only applicable for irods_rule_language REP')
     def test_mod_avu_msvc_4521(self):
         sescoln = self.admin.session_collection
@@ -343,38 +329,6 @@ class Test_ImetaSet(ResourceBase, unittest.TestCase):
             self.assertTrue( output_list == expected_output )
         finally:
             os.unlink(rule_file)
-
-    def test_imeta_add_missing_value_27(self):
-        self.admin.assert_icommand(['imeta', 'add', '-d', self.testfile, 'a'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to add$', '$'],
-                                   use_regex=True)
-
-    def test_imeta_rmi_missing_obj_type_27(self):
-        self.admin.assert_icommand(['imeta', 'rmi', '-d'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to rmi$', '$'],
-                                   use_regex=True)
-
-    def test_imeta_rmi_missing_metadata_id_27(self):
-        self.admin.assert_icommand(['imeta', 'rmi', '-d', self.testfile], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to rmi$', '$'],
-                                   use_regex=True)
-
-    def test_imeta_mod_missing_opt1_27(self):
-        self.admin.assert_icommand(['imeta', 'mod', '-d', self.testfile, 'a', 'v'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to mod$', '$'],
-                                   use_regex=True)
-
-    def test_imeta_set_missing_value_27(self):
-        self.admin.assert_icommand(['imeta', 'set', '-d', self.testfile, 'a'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to set$', '$'],
-                                   use_regex=True)
-
-    def test_imeta_ls_missing_obj_name_27(self):
-        self.admin.assert_icommand(['imeta', 'ls', '-d'], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to ls$', '$'],
-                                   use_regex=True)
-
-    def test_imeta_qu_missing_value_27(self):
-        self.admin.assert_icommand(['imeta', 'qu', '-d', 'a', '='], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to qu$', '$'],
-                                   use_regex=True)
-
-    def test_imeta_cp_missing_obj_name_27(self):
-        self.admin.assert_icommand(['imeta', 'cp', '-d', '-d', self.testfile], 'STDOUT_MULTILINE', ['$', 'Error: Not enough arguments provided to cp$', '$'],
-                                   use_regex=True)
 
     def test_imeta_handles_relative_paths__issue_4682(self):
         data_object = 'foo'
@@ -444,16 +398,6 @@ class Test_ImetaQu(ResourceBase, unittest.TestCase):
         self.assertEqual(split_output[2], 'dataObj:', out)
         self.assertEqual(split_output[3], 'testfile.txt', out)
 
-    def test_imeta_qu_resource_too_man_args_496(self):
-        self.admin.assert_icommand(['imeta', 'qu', '-R', 'target', '=', '1', 'and', 'study', '=', '4616'], 'STDOUT_MULTILINE',
-                ['$', 'Error: Too many arguments provided to imeta qu for the -R option.  Only one KVP pair allowed in search.$', '$'],
-                use_regex=True)
-
-    def test_imeta_qu_user_too_man_args_496(self):
-        self.admin.assert_icommand(['imeta', 'qu', '-u', 'target', '=', '1', 'and', 'study', '=', '4616'], 'STDOUT_MULTILINE',
-                ['$', 'Error: Too many arguments provided to imeta qu for the -u option.  Only one KVP pair allowed in search.$', '$'],
-                use_regex=True)
-
     def test_imeta_qu_dataobj_more_than_3_comparisons_3594(self):
         object_name = 'data_obj_3594'
         self.admin.assert_icommand(['iput', self.testfile, object_name])
@@ -473,4 +417,34 @@ class Test_ImetaQu(ResourceBase, unittest.TestCase):
         self.admin.assert_icommand(['imeta', 'qu', '-C', 'target', '=', '1', 'and', 'study_id', '=', '4616', 'and', 'type', '=', 'fastq'],
                 'STDOUT_MULTILINE', ['collection: .*%s$' % object_name],
                 use_regex=True)
+
+# See issue #5111
+class Test_ImetaLsLongmode(session.make_sessions_mixin([('otherrods', 'rods')], []), unittest.TestCase):
+
+    def setUp(self):
+        super(Test_ImetaLsLongmode, self).setUp()
+        self.admin = self.admin_sessions[0]
+        self.test_data_path = self.admin.session_collection + '/imeta_test_data'
+        self.admin.assert_icommand(['itouch', self.test_data_path])
+        self.admin.assert_icommand(['iadmin', 'mkresc', 'imeta_test_resc', 'random'], 'STDOUT_SINGLELINE', 'random')
+        self.admin.assert_icommand(['imeta', 'add', '-d', self.test_data_path, 'imeta_test_attr', 'imeta_test_value'])
+        self.admin.assert_icommand(['imeta', 'add', '-C', self.admin.session_collection, 'imeta_test_attr', 'imeta_test_value'])
+        self.admin.assert_icommand(['imeta', 'add', '-R', 'imeta_test_resc', 'imeta_test_attr', 'imeta_test_value'])
+        self.admin.assert_icommand(['imeta', 'add', '-u', self.admin.username, 'imeta_test_attr', 'imeta_test_value'])
+
+    def tearDown(self):
+        self.admin.assert_icommand(['iadmin', 'rmresc', 'imeta_test_resc'])
+        super(Test_ImetaLsLongmode, self).tearDown()
+
+    def test_imeta_ls_ld_mtime_present(self):
+        self.admin.assert_icommand(['imeta', 'ls', '-ld', self.test_data_path], 'STDOUT_SINGLELINE', 'time set:')
+
+    def test_imeta_ls_lC_mtime_present(self):
+        self.admin.assert_icommand(['imeta', 'ls', '-lC', self.admin.session_collection], 'STDOUT_SINGLELINE', 'time set:')
+
+    def test_imeta_ls_lR_mtime_present(self):
+        self.admin.assert_icommand(['imeta', 'ls', '-lR', 'imeta_test_resc'], 'STDOUT_SINGLELINE', 'time set:')
+
+    def test_imeta_ls_lu_mtime_present(self):
+        self.admin.assert_icommand(['imeta', 'ls', '-lu', self.admin.username], 'STDOUT_SINGLELINE', 'time set:')
 

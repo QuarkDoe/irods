@@ -13,7 +13,7 @@ namespace irods::experimental {
     } array_delete;
 
     /// \class lifetime_manager
-    /// 
+    ///
     /// \brief Manages the lifetime of a legacy iRODS structure.
     ///
     /// This class serves to wrap existing legacy iRODS C-style structures which
@@ -138,6 +138,10 @@ namespace irods::experimental {
             else if constexpr(std::is_same_v<T, rError_t>) {
                 freeRError(obj_);
             }
+            else if constexpr(std::is_same_v<T, openedDataObjInp_t>) {
+                clearKeyVal(&obj_->condInput);
+                free(obj_);
+            }
             else if (array_delete_) {
                 delete [] obj_;
             }
@@ -146,16 +150,25 @@ namespace irods::experimental {
             }
         }
 
-        /// \fn T& get()
+        /// \returns Pointer to managed structure
         ///
-        /// \brief Get reference to managed structure
+        /// \since 4.2.9
+        auto get() -> T* { return obj_; }
+
+        /// \brief Release the pointer from the lifetime manager
         ///
-        /// \usage T& t = my_lifetime_manager.get();
+        /// \return Pointer to the managed structure
         ///
-        /// \return T&
-        ///
-        /// \since 4.2.8
-        auto get() -> T& { return *obj_; }
+        /// \since 4.2.9
+        auto release() -> T* {
+            if (!obj_) {
+                return nullptr;
+            }
+
+            T* ret = obj_;
+            obj_ = nullptr;
+            return ret;
+        } // release
 
     private:
         /// \var T* obj_
