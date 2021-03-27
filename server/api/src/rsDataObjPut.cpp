@@ -1,4 +1,5 @@
 #include "dataObjPut.h"
+
 #include "dataObjRepl.h"
 #include "dataObjUnlink.h"
 #include "dataPut.h"
@@ -10,6 +11,7 @@
 #include "physPath.hpp"
 #include "rcGlobalExtern.h"
 #include "regDataObj.h"
+#include "rodsErrorTable.h"
 #include "rodsLog.h"
 #include "rsApiHandler.hpp"
 #include "rsDataObjClose.hpp"
@@ -27,7 +29,6 @@
 #include "rsUnregDataObj.hpp"
 #include "specColl.hpp"
 #include "subStructFilePut.h"
-
 #include "finalize_utilities.hpp"
 #include "getRescQuota.h"
 #include "json_serialization.hpp"
@@ -37,7 +38,6 @@
 #include "rsModAVUMetadata.hpp"
 #include "rsModAccessControl.hpp"
 #include "rs_replica_close.hpp"
-
 #include "irods_at_scope_exit.hpp"
 #include "irods_exception.hpp"
 #include "irods_hierarchy_parser.hpp"
@@ -58,7 +58,12 @@
 
 #include "replica_state_table.hpp"
 
+#include <cstring>
 #include <chrono>
+#include <string>
+#include <tuple>
+#include <algorithm>
+#include <exception>
 
 namespace
 {
@@ -78,31 +83,19 @@ namespace
 
     auto calculate_checksum(RsComm& _comm, l1desc& _l1desc, DataObjInfo& _info) -> std::string
     {
-        if (!std::string_view{_info.chksum}.empty()) {
-            _l1desc.chksumFlag = REG_CHKSUM;
-        }
-
-        char* checksum_string = nullptr;
-        irods::at_scope_exit free_checksum_string{[&checksum_string] { free(checksum_string); }};
-
-        auto destination_replica = irods::experimental::replica::make_replica_proxy(_info);
-
-        if (!_l1desc.chksumFlag) {
-            if (destination_replica.checksum().empty()) {
-                return {};
-            }
-            _l1desc.chksumFlag = VERIFY_CHKSUM;
+        if (REG_CHKSUM == _l1desc.chksumFlag) {
+            return irods::register_new_checksum(_comm, _info, _l1desc.chksum);
         }
 
         if (VERIFY_CHKSUM == _l1desc.chksumFlag) {
-            if (!std::string_view{_l1desc.chksum}.empty()) {
-                return irods::verify_checksum(_comm, _info, _l1desc.chksum);
+            if (std::strlen(_l1desc.chksum) == 0) {
+                THROW(SYS_INVALID_INPUT_PARAM, "No checksum provided by the client.");
             }
 
-            return {};
+            return irods::verify_checksum(_comm, _info, _l1desc.chksum);
         }
 
-        return irods::register_new_checksum(_comm, _info, _l1desc.chksum);
+        return {};
     } // calculate_checksum
 
     auto finalize_on_failure(RsComm& _comm, DataObjInfo& _info, l1desc& _l1desc) -> int
@@ -280,24 +273,24 @@ namespace
         int status = 0;
         // special collections are special - just use the old close
         if (l1desc.dataObjInfo->specColl) {
-			OpenedDataObjInp close_inp{};
-			close_inp.l1descInx = fd;
-			l1desc.oprStatus = bytes_written;
-			l1desc.oprType = PUT_OPR;
-			const int status = rsDataObjClose(&_comm, &close_inp);
-			if (status < 0) {
+            OpenedDataObjInp close_inp{};
+            close_inp.l1descInx = fd;
+            l1desc.oprStatus = bytes_written;
+            l1desc.oprType = PUT_OPR;
+            const int status = rsDataObjClose(&_comm, &close_inp);
+            if (status < 0) {
                 irods::log(LOG_DEBUG, fmt::format(
-						"[{}:{}]: rsDataObjClose of [{}] error, status = [{}]",
-						__FUNCTION__, __LINE__, fd, status));
-			}
+                    "[{}:{}]: rsDataObjClose of [{}] error, status = [{}]",
+                    __FUNCTION__, __LINE__, fd, status));
+            }
 
-			if ( bytes_written < 0 ) {
-				return bytes_written;
-			}
+            if ( bytes_written < 0 ) {
+                return bytes_written;
+            }
 
-			if (status < 0) {
-				return status;
-			}
+            if (status < 0) {
+                return status;
+            }
         }
         else {
             auto [final_object, final_object_lm] = irods::experimental::data_object::duplicate_data_object(*l1desc.dataObjInfo);
